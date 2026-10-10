@@ -1,0 +1,6 @@
+Makefile
+compile.bat
+build
+bin
+include/*.frag.h
+include/*.vert.h
