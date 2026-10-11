@@ -3,6 +3,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <math.h>
+#include "align_alloc.h"
 
 void subdivideIcoSphereWithRepeatOnce(float **vertices, int *vertexCount,
                             GLuint **indices, int *indexCount) {
@@ -22,8 +23,8 @@ void subdivideIcoSphereWithRepeatOnce(float **vertices, int *vertexCount,
     int idxCount = numFaces * 3;
 
     // 新的顶点和索引
-    float *verts = (float *)malloc(vertCount * 6 * sizeof(float));
-    GLuint *idx = (GLuint *)malloc(idxCount * sizeof(GLuint));
+    float *verts = (float *)my_malloc(vertCount * 6 * sizeof(float));
+    GLuint *idx = (GLuint *)my_malloc(idxCount * sizeof(GLuint));
     if (!verts || !idx) {
         fprintf(stderr, "Error! Cannot allocate memory.\n");
         exit(EXIT_FAILURE);
@@ -83,8 +84,8 @@ void subdivideIcoSphereWithRepeatOnce(float **vertices, int *vertexCount,
     }
 
     // 释放旧数组内存，交换成新数组
-    free(vertsOld); vertsOld = NULL;
-    free(idxOld); idxOld = NULL;
+    my_free(vertsOld); vertsOld = NULL;
+    my_free(idxOld); idxOld = NULL;
 
     *vertices = verts;
     *vertexCount = vertCount;
@@ -113,8 +114,8 @@ void subdivideIcoSphereOnce(float **vertices, int *vertexCount,
     int idxCount = numFaces * 3;
 
     // 新的顶点和索引
-    float *verts = (float *)malloc(vertCount * 6 * sizeof(float));
-    GLuint *idx = (GLuint *)malloc(idxCount * sizeof(GLuint));
+    float *verts = (float *)my_malloc(vertCount * 6 * sizeof(float));
+    GLuint *idx = (GLuint *)my_malloc(idxCount * sizeof(GLuint));
     if (!verts || !idx) {
         fprintf(stderr, "Error! Cannot allocate memory.\n");
         exit(EXIT_FAILURE);
@@ -156,14 +157,14 @@ void subdivideIcoSphereOnce(float **vertices, int *vertexCount,
     edgeMap *nextNode = NULL, *e = NULL;
     HASH_ITER(hh, edges, e, nextNode) {
         HASH_DEL(edges, e);
-        free(e);
+        my_free(e);
     }
 
     e = NULL; nextNode = NULL;
 
     // 释放旧数组内存，交换成新数组
-    free(vertsOld); vertsOld = NULL;
-    free(idxOld); idxOld = NULL;
+    my_free(vertsOld); vertsOld = NULL;
+    my_free(idxOld); idxOld = NULL;
 
     *vertices = verts;
     *vertexCount = vertCount;
@@ -211,7 +212,7 @@ int getOrCreateMidpointIndex(edgeMap **edgesPtr, float *verts, int *vertIdxPtr, 
         memcpy(verts + *vPtr, midPoint, 3 * sizeof(float)); *vPtr += 3;
         memcpy(verts + *vPtr, midPoint, 3 * sizeof(float)); *vPtr += 3;
         // 新建键值对
-        e = malloc(sizeof(edgeMap));                  
+        e = my_malloc(sizeof(edgeMap));                  
         if (!e) {
             fprintf(stderr, "Error! Cannot allocate memory.\n");
             exit(EXIT_FAILURE);
@@ -248,8 +249,8 @@ void subdivideIcoSphereOnce(float **vertices, int *vertexCount,
     int idxCount = numFaces * 3;
 
     // 新的顶点和索引
-    float *verts = (float *)malloc(vertCount * 6 * sizeof(float));
-    GLuint *idx = (GLuint *)malloc(idxCount * sizeof(GLuint));
+    float *verts = (float *)my_malloc(vertCount * 6 * sizeof(float));
+    GLuint *idx = (GLuint *)my_malloc(idxCount * sizeof(GLuint));
     if (!verts || !idx) {
         fprintf(stderr, "Error! Cannot allocate memory.\n");
         exit(EXIT_FAILURE);
@@ -262,7 +263,7 @@ void subdivideIcoSphereOnce(float **vertices, int *vertexCount,
     // 先遍历一遍所有 a < b 的 (a, b)，然后排序。这样第i组(a, b) 对应的 mid 就是 vertCountOld + i
     // 排序后按顺序填充 mid，然后使用的时候去里面查
 
-    int *vertMap = (int *)malloc(numAppendVerts * 2 * sizeof(int));
+    int *vertMap = (int *)my_malloc(numAppendVerts * 2 * sizeof(int));
     if (!vertMap) {
         fprintf(stderr, "Error! Cannot allocate memory.\n");
         exit(EXIT_FAILURE);
@@ -378,11 +379,11 @@ void subdivideIcoSphereOnce(float **vertices, int *vertexCount,
     }
 
     // 释放 (a, b, mid) 的内存
-    free(vertMap); vertMap = NULL;
+    my_free(vertMap); vertMap = NULL;
 
     // 释放旧数组内存，交换成新数组
-    free(vertsOld); vertsOld = NULL;
-    free(idxOld); idxOld = NULL;
+    my_free(vertsOld); vertsOld = NULL;
+    my_free(idxOld); idxOld = NULL;
 
     *vertices = verts;
     *vertexCount = vertCount;
@@ -424,8 +425,8 @@ void generateIcoSphere(int numSubdivisionsIter,
     // 正二十面体有12个顶点，20个面
     int vertCount = 12;
     int idxCount = 20 * 3;
-    float *verts = (float *)malloc(vertCount * 6 * sizeof(float));
-    GLuint *idx = (GLuint *)malloc(idxCount * sizeof(GLuint));
+    float *verts = (float *)my_malloc(vertCount * 6 * sizeof(float));
+    GLuint *idx = (GLuint *)my_malloc(idxCount * sizeof(GLuint));
     if (!verts || !idx) {
         fprintf(stderr, "Error! Cannot allocate memory.\n");
         exit(EXIT_FAILURE);
@@ -518,8 +519,8 @@ void generateGeoSphere(int sectors, int stacks,
     int idxCount = (stacks - 1) * sectors * 3 * 2;
 
     // verts依次排每个顶点，每个顶点用6个坐标，前3个位置，后3个法线。大循环纬度从北纬0°到南纬0°。小循环是里面经度。
-    float *verts = (float *)malloc(vertCount * 6 * sizeof(float));
-    GLuint *idx = (GLuint *)malloc(idxCount * sizeof(GLuint));
+    float *verts = (float *)my_malloc(vertCount * 6 * sizeof(float));
+    GLuint *idx = (GLuint *)my_malloc(idxCount * sizeof(GLuint));
 
     if (!verts || !idx) {
         fprintf(stderr, "Error! Cannot allocate memory.\n");
@@ -627,8 +628,8 @@ void generateGeoSphereRepeatPole(int sectors, int stacks,
     int idxCount = (stacks - 1) * sectors * 3 * 2;
 
     // verts依次排每个顶点，每个顶点用6个坐标，前3个位置，后3个法线。大循环纬度从北纬0°到南纬0°。小循环是里面经度。
-    float *verts = (float *)malloc(vertCount * 6 * sizeof(float));
-    GLuint *idx = (GLuint *)malloc(idxCount * sizeof(GLuint));
+    float *verts = (float *)my_malloc(vertCount * 6 * sizeof(float));
+    GLuint *idx = (GLuint *)my_malloc(idxCount * sizeof(GLuint));
 
     if (!verts || !idx) {
         fprintf(stderr, "Error! Cannot allocate memory.\n");
@@ -712,8 +713,8 @@ void generateCylinder(int sectors,
     int capIdx = sectors * 3;
     int totalIdx = sideIdx + 2 * capIdx;
 
-    float *verts = (float *)malloc(totalVerts * 6 * sizeof(float));
-    GLuint *idx = (GLuint *)malloc(totalIdx * sizeof(GLuint));
+    float *verts = (float *)my_malloc(totalVerts * 6 * sizeof(float));
+    GLuint *idx = (GLuint *)my_malloc(totalIdx * sizeof(GLuint));
 
     if (!verts || !idx) {
         fprintf(stderr, "Error! Cannot allocate memory.\n");
