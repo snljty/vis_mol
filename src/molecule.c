@@ -707,6 +707,7 @@ void destroy_molecule(Molecule *mol) {
             mol->elements = NULL;
         }
         mol->natoms = 0u;
+        mol->nbonds = 0u;
     }
     my_free(mol);
 }
@@ -722,9 +723,12 @@ void get_intramolecular_connectivity(Molecule *mol) {
           exit(EXIT_FAILURE);
     }
     memset(atomic_covalence_radius_sum, 0, mol->natoms * mol->natoms * sizeof(float));
+    memset(mol->connections, 0, mol->natoms * mol->natoms);
+    mol->nbonds = 0u;
 
     // maybe calculating atomic_pair_distances and atomic_covalence_radius by SIMD and optimized LAPACK+BLAS is a better idea.
     for (unsigned int iatom = 0u; iatom < mol->natoms; ++ iatom) {
+        *atom_distance(mol, iatom, iatom) = (unsigned char)0u;
         for (unsigned int jatom = iatom + 1; jatom < mol->natoms; ++ jatom) {
             float v1 = mol->atomic_covalence_radius[iatom] + mol->atomic_covalence_radius[jatom];
             atomic_covalence_radius_sum[iatom * mol->natoms + jatom] = v1;
@@ -736,6 +740,7 @@ void get_intramolecular_connectivity(Molecule *mol) {
             if (v2 <= v1 * scale_tol) {
                 *atom_connection(mol, iatom, jatom) = (unsigned char)1u;
                 *atom_connection(mol, jatom, iatom) = (unsigned char)1u;
+                ++ mol->nbonds;
             }
         }
     }
@@ -748,8 +753,13 @@ void get_intramolecular_connectivity(Molecule *mol) {
 void get_intramolecular_connectivity(Molecule *mol) {
     // this scale_tol from `Multiwfn`
     const float scale_tol = 1.15f;
+
+    // fill it to zero just in case the molecule is reused
+    memset(mol->connections, 0, mol->natoms * mol->natoms);
+    mol->nbonds = 0u;
     
     for (unsigned int iatom = 0u; iatom < mol->natoms; ++ iatom) {
+        *atom_distance(mol, iatom, iatom) = (unsigned char)0u;
         for (unsigned int jatom = iatom + 1; jatom < mol->natoms; ++ jatom) {
             float v1 = mol->atomic_covalence_radius[iatom] + mol->atomic_covalence_radius[jatom];
             float dx = atom_coord(mol, iatom)[0] - atom_coord(mol, jatom)[0];
@@ -759,8 +769,9 @@ void get_intramolecular_connectivity(Molecule *mol) {
             *atom_distance(mol, iatom, jatom) = v2;
 
             if (v2 <= v1 * scale_tol) {
-                *atom_connection(mol, iatom, jatom) = (unsigned char)1;
-                *atom_connection(mol, jatom, iatom) = (unsigned char)1;
+                *atom_connection(mol, iatom, jatom) = (unsigned char)1u;
+                *atom_connection(mol, jatom, iatom) = (unsigned char)1u;
+                ++ mol->nbonds;
             }
         }
     }
@@ -820,6 +831,7 @@ void allocate_molecule_memory(Molecule *mol) {
           fprintf(stderr, "Error! Cannot allocate memory.\n");
           exit(EXIT_FAILURE);
     }
+    mol->nbonds = 0u;
     memset(mol->connections, 0, mol->natoms * mol->natoms);
     memset(mol->distances, 0, mol->natoms * mol->natoms * sizeof(float));
 }

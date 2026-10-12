@@ -7,10 +7,6 @@
 #include <uthash.h>
 #endif
 
-// 不做棱心顶点去重的版本
-void subdivideIcoSphereWithRepeatOnce(float **vertices, int *vertexCount,
-                            GLuint **indices, int *indexCount);
-
 // 做顶点去重的版本
 void subdivideIcoSphereOnce(float **vertices, int *vertexCount,
                             GLuint **indices, int *indexCount);
@@ -34,13 +30,9 @@ int compVertEnd(const void *a, const void *b);
 
 #endif // HAVE_UTHASH
 
-void generateGeoSphere(int sectors, int stacks,
-                    float **vertices, int *vertexCount,
-                    GLuint **indices, int *indexCount);
-
-void generateGeoSphereRepeatPole(int sectors, int stacks,
-                    float **vertices, int *vertexCount,
-                    GLuint **indices, int *indexCount);
+// void generateGeoSphere(int sectors, int stacks,
+//                     float **vertices, int *vertexCount,
+//                     GLuint **indices, int *indexCount);
 
 void generateIcoSphere(int numSubdivisionsIter, 
                     float **vertices, int *vertexCount,

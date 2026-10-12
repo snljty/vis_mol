@@ -53,6 +53,7 @@ typedef struct {
     unsigned char *connections;
     float *distances; // atomic-pairwise distances
     float *box;
+    unsigned int nbonds;
     unsigned int ndim;
 } Molecule;
 

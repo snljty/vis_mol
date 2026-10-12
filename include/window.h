@@ -5,6 +5,8 @@
 #include <glad/glad.h>
 #include <GL/freeglut.h>
 
+#include "molecule.h"
+
 // 窗口尺寸（全局变量，在 main.c 中定义，其他文件通过 extern 使用，比如window.c）
 extern int winWidth;
 extern int winHeight;
@@ -18,10 +20,11 @@ extern GLuint sphereVAO, cylinderVAO; // handle
 extern int sphereIdxCount, cylinderIdxCount;
 extern GLuint shaderProgram; // handle
 
-// 棒棒糖参数
+// 化学键半径
 extern const float STICK_RADIUS;
-extern const float STICK_HEIGHT;
-extern const float SPHERE_RADIUS;
+
+// 分子本身
+extern Molecule *mol;
 
 // 创建 VAO（包含 VBO 和 EBO），返回 VAO 编号
 GLuint createVAO(float *vertices, int vertexCount,
@@ -31,7 +34,7 @@ GLuint createVAO(float *vertices, int vertexCount,
 void initScene();
 
 // 初始化窗口并返回是否成功（0成功，-1失败）
-int initWindow(int argc, char **argv, const char *title);
+int initWindow(int argc, char **argv);
 
 // 显示回调（每帧渲染）
 void display();

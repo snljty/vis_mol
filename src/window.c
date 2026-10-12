@@ -2,16 +2,18 @@
 #include "math_utils.h"
 #include "geometry.h"
 #include "shader.h"
+#include "const.h"
 // #include <GL/freeglut.h>
 #include <stdlib.h>
 
 // 窗口尺寸
 int winWidth = 800, winHeight = 1000;
 
-// 棒棒糖参数
+// 化学键半径
 const float STICK_RADIUS = 0.1f;
-const float STICK_HEIGHT = 2.0f;
-const float SPHERE_RADIUS = 0.5f;
+
+// 分子
+Molecule *mol = NULL;
 
 // gl* 这些函数报错通常不返回错误码，而是设定全局错误标志：
 // GLenum err = glGetError();
@@ -97,26 +99,24 @@ void initScene() {
     int stacks = 32; // 只有经纬球用的到，纬向块数
     int numSubdivide = 3; // 正二十面体细分球（棱角球）表面细分次数。 
     #else
-    int sectors = 16; // 经纬球和圆柱的经向块数
-    int stacks = 16; // 只有经纬球用的到，纬向块数
-    int numSubdivide = 2; // 正二十面体细分球（棱角球）表面细分次数。 
+    int sectors = 16;
+    int stacks = 16;
+    int numSubdivide = 2;
     #endif
     (void)stacks; // 这个变量其实用不到，我们已经不用经纬球了，但是还是留在这里，这行避免编译器 Warning
 
     // numSubdivide = 2 的时候三角形比上面经纬球的 sectors = 16; stacks = 16; 略少，但是更均匀，效果应该差不多。
     // 如果 sectors 和 stacks 都设高质量的 32，可以 numSubdivide 增加到 3。总之只考虑三角形个数，sectors 和 stacks 翻倍，
-    // 三角形近似变成四倍；numSubdivide 增加 1，三角形个数也增加 1。
+    // 三角形近似变成四倍；numSubdivide 增加 1，三角形个数也变成四倍。
 
     float *sphereVerts, *cylinderVerts;
     int sphereVertCount, cylinderVertCount;
     GLuint *sphereIdx, *cylinderIdx;
 
     // 最初版本的，经纬球
-    /*
-    generateGeoSphere(sectors, stacks,
-                   &sphereVerts, &sphereVertCount,
-                   &sphereIdx, &sphereIdxCount);
-    */
+    // generateGeoSphere(sectors, stacks,
+    //                &sphereVerts, &sphereVertCount,
+    //                &sphereIdx, &sphereIdxCount);
     // 现在版本的，只用棱角球，一定做中点去重，看有没有 Hash 库决定是用散列函数还是排序+二分查找
     generateIcoSphere(numSubdivide, 
                    &sphereVerts, &sphereVertCount,
@@ -148,8 +148,8 @@ void initScene() {
 // 显示回调（每帧渲染）
 void display() {
     // 清屏
-    // 背景色 RGBA，这里是深青色
-    glClearColor(0.2f, 0.3f, 0.3f, 1.0f);
+    // 背景色 RGBA
+    glClearColor(1.0f, 1.0f, 1.0f, 1.0f);
     // 因为深度测试用"上一帧的深度值"判断遮挡就错了，每帧必须重置深度，保证这一帧重新判断谁在前谁在后。
     // 把颜色缓冲和深度缓冲都清空
     glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
@@ -185,11 +185,11 @@ void display() {
     float far_ = 100.f;
 
     // 如果用正交视角
-    // mat4_set_orthographic(projection, left, right, bottom, top, near_, far_);
+    mat4_set_orthographic(projection, left, right, bottom, top, near_, far_);
     // 如果用透视视角
     // VFOV 为 45°对应的弧度，是图形学常用的"默认垂直视场角"，接近人眼/相机的自然视野，不夸张、不狭窄，看起来舒服，是大多数教程和引擎的默认值。
     // 想广角就调大，想长焦就调小。
-    mat4_set_perspective(projection, vfov_degree * (float)M_PI / 180.0f, aspect, near_, far_);
+    // mat4_set_perspective(projection, vfov_degree * (float)M_PI / 180.0f, aspect, near_, far_);
 
     // 上传4×4矩阵，以指针形式。上传一个指针，倒数第二个参数这里用GL_FALSE和GL_TRUE表示是否转置。
     // glUniformMatrix4fv(glGetUniformLocation(shaderProgram, "projection"), 1, GL_FALSE, projection);
@@ -208,12 +208,6 @@ void display() {
     mat4_mul(projection_view, projection, view);
     // projection 和 view 这里总是一起做，可以算好两者乘积一次性传给 GPU。
     glUniformMatrix4fv(glGetUniformLocation(shaderProgram, "projection_view"), 1, GL_FALSE, projection_view);
-
-    // 旋转角度（基于时间）
-    // glutGet(GLUT_ELAPSED_TIME) 返回的是自 GLUT 初始化以来的时间，单位是毫秒（milliseconds），类型是 int。
-    // 每秒钟改变 0.5 弧度。
-    const float angle_change_rate = 0.5f;
-    float angle = (float)glutGet(GLUT_ELAPSED_TIME) / 1000.0f * angle_change_rate;
 
     // 棍子长度、半径、球长度在前面定义的全局变量
 
@@ -250,65 +244,107 @@ void display() {
     // 从物体的局部空间坐标开始变换
     // 按照 model = T @ R @ S 顺序乘法。
     // 为了方便算 model 矩阵左上角3 * 3的逆，我们先把scale以外的部分乘起来，最后乘scale。
-    // 我们要先把各个部件拼上，再整体旋转平移，所以总顺序是 model = T_global @ R_global @ T_local @ R_local @ S_local。
-    float TR[16]; // 整体平移和旋转，先设置旋转，再设置平移
-    // 如果用Euler角表示
-    // float RX[16], RY[16], RZ[16];
-    float rot_axis[3] = {0.3f, 0.5f, 0.7f};
-    vec3_normalize(rot_axis);
-    // Rodrigues 旋转
-    mat4_set_rotation(TR, rot_axis, angle);
 
-    // 棒棒糖整体位置（棍子中心放在 y = STICK_HEIGHT/2）
-    float trans[3] = {0.0f, STICK_HEIGHT / 2.0f, 0.0f};
-    mat4_prepend_translation(TR, trans);
+    // model 矩阵和 model3_inv_transpose 矩阵，每个球/圆柱实例用相同的内存。
+    float model[16], model3_inv_transpose[9], scale[3];
+    float T_half_cylinder[16];
 
-    // ========== 绘制棍子：model = T @ R @ S_cylinder ==========
-    float model_cylinder[16], model3_inv_cylinder[9];
-    float scale_cylinder[3] = {STICK_RADIUS, STICK_HEIGHT, STICK_RADIUS};
-    mat4_copy(model_cylinder, TR);
-    // 这里model还不包括S
-    mat4_topleft_to_mat3(model3_inv_cylinder, model_cylinder);
-    mat3_append_inverse_scale(model3_inv_cylinder, scale_cylinder);
-    glUniformMatrix3fv(glGetUniformLocation(shaderProgram, "model3_inverse_transpose"), 1, GL_FALSE, model3_inv_cylinder);
-    // 缩放到正常尺寸，最后再用
-    mat4_append_scale(model_cylinder, scale_cylinder);
-    glUniformMatrix4fv(glGetUniformLocation(shaderProgram, "model"), 1, GL_FALSE, model_cylinder);
-    // 棍子颜色
-    glUniform3f(glGetUniformLocation(shaderProgram, "objectColor"), 0.8f, 0.6f, 0.4f);
+    // ========== 绘制化学键 ==========
+    // 绑定圆柱的 VAO
     // 这里绑定是为了使用配置。
     glBindVertexArray(cylinderVAO);
-    // GL_TRIANGLES：每 3 个索引 = 1 个三角形。
-    // 第二个参数是索引的个数，即三角形个数的3倍。
-    // 第三个参数是索引的数据类型（EBO 里存的是 unsigned int）。
-    // 最后一个参数是从EBO的哪个偏移开始读。
-    // 这里才是真实绘制，或者说实例化，用当前绑定的着色器（含所有Uniform，比如上传的model矩阵和物体颜色等信息）和当前绑定的VAO绘制一个物体。
-    // 我们这里是用glUseProgram(shaderProgram)来对所有物体用了相同着色器。如果真的要不同物体用不同着色器，这里应该激活新的着色器。
-    glDrawElements(GL_TRIANGLES, cylinderIdxCount, GL_UNSIGNED_INT, 0);
-    // 解绑，这里不做原理上也行，而且通常这里不做解绑
+
+    float bond_vector[3];
+    float bond_length;
+    float axis[3];
+    float translation[3];
+    const float cylinder_height_orientation[3] = {0.f, 1.f, 0.f};
+    for (unsigned int iatom = 0u; iatom < mol->natoms; ++ iatom) {
+        for (unsigned int jatom = iatom + 1; jatom < mol->natoms; ++ jatom) {
+            if (*atom_connection(mol, iatom, jatom)) {
+                vec3_sub(bond_vector, atom_coord(mol, jatom), atom_coord(mol, iatom));
+                bond_length = vec3_length(bond_vector);
+                scale[0] = scale[2] = STICK_RADIUS; scale[1] = bond_length;
+
+                // 用叉乘计算旋转
+                // bond_vector 和 y 几乎共线时候有数值问题，而且有退化情况，必须单独处理。
+                // vec3_cross(axis, cylinder_height_orientation, bond_vector);
+                // if (vec3_length(axis) < 1e-6f) {      // 键∥Y
+                //     if (bond_vector[1] > 0.f)
+                //         mat4_identity(model);                        // d=+Y：无需旋转
+                //     else
+                //         mat4_set_rotation_x(model, (float)M_PI);     // d=-Y：绕 X 转 180°
+                // } else {
+                //     vec3_normalize(axis);
+                //     mat4_set_rotation_by_cos_angle(model, axis,
+                //         vec3_included_angle_cos(cylinder_height_orientation, bond_vector));
+                // }
+
+                // 另一种旋转计算方法，不用算叉乘和夹角，数值上更友好，即使近退化情况，只要不是严格退化，尽管转轴是错的，结果依然是对的。
+                // axis 选取目标方向和 y 轴方向的平均值的一半，转 180° 即可。感觉比叉乘的方法更省事。
+                // bond_vector ≈ -y 时候有退化情况，要单独处理。
+                vec3_copy(axis, bond_vector);
+                axis[1] += bond_length;               // = bond_length * (d + Y)
+                if (vec3_length(axis) < 1e-6f) {      // d ≈ -Y 的退化情形
+                    mat4_set_rotation_x(model, (float)M_PI);   // 绕 X 轴转 180°，把 +Y → -Y
+                } else {
+                    vec3_normalize(axis);
+                    mat4_set_rotation_by_cos_angle(model, axis, -1.f);
+                }
+
+                // 现在圆柱顶端应该在 bond_vector 的一半的位置，但是圆柱中心要平移到 iatom 的坐标位置
+                vec3_scale_inverse(bond_vector, 2.f);
+                vec3_add(translation, atom_coord(mol, iatom), bond_vector);
+                mat4_prepend_translation(model, translation);
+
+                // 这里model还不包括S
+                mat4_topleft_to_mat3(model3_inv_transpose, model);
+                mat3_append_inverse_scale(model3_inv_transpose, scale);
+                glUniformMatrix3fv(glGetUniformLocation(shaderProgram, "model3_inverse_transpose"), 1, GL_FALSE, model3_inv_transpose);
+                // 缩放到正常尺寸，最后再用
+                mat4_append_scale(model, scale);
+                glUniformMatrix4fv(glGetUniformLocation(shaderProgram, "model"), 1, GL_FALSE, model);
+                // 颜色
+                glUniform3f(glGetUniformLocation(shaderProgram, "objectColor"), 0.6f, 0.6f, 0.6f);
+                // GL_TRIANGLES：每 3 个索引 = 1 个三角形。
+                // 第二个参数是索引的个数，即三角形个数的3倍。
+                // 第三个参数是索引的数据类型（EBO 里存的是 unsigned int）。
+                // 最后一个参数是从EBO的哪个偏移开始读。
+                // 这里才是真实绘制，或者说实例化，用当前绑定的着色器（含所有Uniform，比如上传的model矩阵和物体颜色等信息）和当前绑定的VAO绘制一个物体。
+                // 我们这里是用glUseProgram(shaderProgram)来对所有物体用了相同着色器。如果真的要不同物体用不同着色器，这里应该激活新的着色器。
+                glDrawElements(GL_TRIANGLES, cylinderIdxCount, GL_UNSIGNED_INT, 0);
+            }
+        }
+    }
+
+    // 解绑圆柱的 VAO，这里不做原理上也行，而且通常这里不做解绑
     // glBindVertexArray(0);
 
-    // ========== 绘制糖球：model = T @ R @ T_sphere @ S_sphere ==========
-    // 先把球和圆柱scale，然后拼上，然后整体旋转再平移
-    float model_sphere[16], model3_inv_shpere[9];
-    float scale_sphere[3] = {SPHERE_RADIUS, SPHERE_RADIUS, SPHERE_RADIUS};
-    // 让球和棍刚好相交，而不是相切
-    float sphere_total_y_trans = STICK_HEIGHT / 2.0f + sqrtf(SPHERE_RADIUS * SPHERE_RADIUS - STICK_RADIUS * STICK_RADIUS);
-
+    // ========== 绘制原子球 ==========
     // 尽管理想球体，球心在原点时候旋转不变，但是实际法线得跟着旋转，否则光线方向不对，因此还是要乘R矩阵的。
     // 唯一不受法线方向影响的是环境光。其他比如点光源、方向光、漫反射光等都受法线方向影响。
-    float temp_mat4[16];
-    mat4_set_translation(temp_mat4, 0.0f, sphere_total_y_trans, 0.0f);
-    mat4_mul(model_sphere, TR, temp_mat4);
-    // 这里model还不包括S
-    mat4_topleft_to_mat3(model3_inv_shpere, model_sphere);
-    mat3_append_inverse_scale(model3_inv_shpere, scale_sphere);
-    glUniformMatrix3fv(glGetUniformLocation(shaderProgram, "model3_inverse_transpose"), 1, GL_FALSE, model3_inv_shpere);
-    mat4_append_scale(model_sphere, scale_sphere);
-    glUniformMatrix4fv(glGetUniformLocation(shaderProgram, "model"), 1, GL_FALSE, model_sphere);
-    glUniform3f(glGetUniformLocation(shaderProgram, "objectColor"), 1.0f, 0.3f, 0.3f);
+    // 绑定球的 VAO
     glBindVertexArray(sphereVAO);
-    glDrawElements(GL_TRIANGLES, sphereIdxCount, GL_UNSIGNED_INT, 0);
+
+    // 绘制每个原子
+    for (unsigned int iatom = 0u; iatom < mol->natoms; ++ iatom) {
+        mat4_set_translation(model, atom_coord(mol, iatom)[0], atom_coord(mol, iatom)[1], atom_coord(mol, iatom)[2]);
+        // 这里model还不包括S
+        mat3_identity(model3_inv_transpose);
+        scale[0] = mol->atomic_covalence_radius[iatom] / 2.f;
+        scale[1] = mol->atomic_covalence_radius[iatom] / 2.f;
+        scale[2] = mol->atomic_covalence_radius[iatom] / 2.f;
+        mat3_append_inverse_scale(model3_inv_transpose, scale);
+        glUniformMatrix3fv(glGetUniformLocation(shaderProgram, "model3_inverse_transpose"), 1, GL_FALSE, model3_inv_transpose);
+        mat4_append_scale(model, scale);
+        glUniformMatrix4fv(glGetUniformLocation(shaderProgram, "model"), 1, GL_FALSE, model);
+        glUniform3fv(glGetUniformLocation(shaderProgram, "objectColor"), 1, element_color(mol->atomic_indices[iatom]));
+        // 实体化
+        // 最后一个参数是 EBO 里的偏移
+        glDrawElements(GL_TRIANGLES, sphereIdxCount, GL_UNSIGNED_INT, 0);
+    }
+
+    // 解绑球的 VAO
     // glBindVertexArray(0);
 
     glutSwapBuffers(); // 双缓冲模式把"后缓冲"和"前缓冲"交换
@@ -316,8 +352,31 @@ void display() {
     // glUseProgram(0); // 解除激活着色器，通常没必要而且不这么做，核心模式没有着色器无法绘图。
 }
 
-int initWindow(int argc, char **argv, const char *title) {
-    // 必须第一个被整个程序调用，初始化GLUT库本身
+int initWindow(int argc, char **argv) {
+    // 先读入分子
+    if (argc - 1 != 1) {
+        fprintf(stdout, "Usage: \"%s\" xxx.gjf|xyz|out|fch\n", argv[0]);
+        exit(EXIT_SUCCESS);
+    }
+
+    char ifilename[PATH_MAX + 1];
+    ifilename[PATH_MAX] = '\0';
+    strncpy(ifilename, argv[1], PATH_MAX);
+
+    // 全局变量 mol
+    mol = read_molecule(ifilename);
+
+    get_intramolecular_connectivity(mol);
+
+    // print_molecule(mol);
+    // print_intramolecular_connectivity(mol);
+    // print_box(mol);
+
+    #ifdef HAVE_UTHASH
+    destroy_elements_hash_table();
+    #endif
+
+    // 在 OpenGL 部分必须第一个被整个程序调用，初始化GLUT库本身
     glutInit(&argc, argv);
 
     // 配置，顺序可换，要在建立窗口前
@@ -333,7 +392,7 @@ int initWindow(int argc, char **argv, const char *title) {
     glutInitContextProfile(GLUT_CORE_PROFILE);   // 核心模式，只保留可编程管线，放弃对旧的固定管线兼容
     glutInitWindowSize(winWidth, winHeight);
 
-    glutCreateWindow(title);
+    glutCreateWindow(ifilename);
 
     // 加载 OpenGL 函数（必须在创建窗口之后，需要OpenGL上下文）
     if (!gladLoadGL()) {

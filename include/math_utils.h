@@ -23,6 +23,7 @@ void mat4_mul(float *res, const float *a, const float *b);
 void mat4_lmul_inplace(float *m, const float *a);
 void mat4_rmul_inplace(float *m, const float *a);
 void mat4_set_rotation(float *m, const float *axis, float angle);
+void mat4_set_rotation_by_cos_angle(float *m, const float *axis, float cos_angle);
 void mat4_set_perspective(float *m, float fov, float aspect, float near_, float far_);
 void mat4_set_orthographic(float *m, float left, float right, float bottom, float top, float near_, float far_);
 void mat4_set_look_at(float *m, const float *eye, const float *center, const float *up);
@@ -43,7 +44,11 @@ static inline void vec3_add(float *res, const float *a, const float *b);
 static inline void vec3_sub(float *res, const float *a, const float *b);
 static inline void vec3_scale(float *res, float s);
 static inline void vec3_scale_inverse(float *res, float s);
+static inline float vec3_length(const float *v);
 static inline void vec3_normalize(float *v);
+static inline void vec3_copy(float *v, const float *old);
+float vec3_included_angle_cos(const float *a, const float *b);
+float vec3_included_angle(const float *a, const float *b);
 
 void mat3_identity(float *m);
 void mat3_to_mat4_topleft(float *m4, const float *m3);
@@ -99,9 +104,17 @@ static inline void vec3_scale_inverse(float *res, float s) {
     res[2] /= s;
 }
 
+static inline float vec3_length(const float *v) {
+    return sqrtf(vec3_dot(v, v));
+}
+
 static inline void vec3_normalize(float *v) {
-    float len = sqrtf(vec3_dot(v, v));
+    float len = vec3_length(v);
     if (len > 0.f) vec3_scale_inverse(v, len);
+}
+
+static inline void vec3_copy(float *v, const float *old) {
+    memcpy(v, old, 3 * sizeof(float));
 }
 
 

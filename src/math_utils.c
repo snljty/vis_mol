@@ -406,6 +406,14 @@ void vec3_outer(float *res, const float *a, const float *b) {
     mat3_get(res, 2, 2) = a[2] * b[2];
 }
 
+float vec3_included_angle_cos(const float *a, const float *b) {
+    return vec3_dot(a, b) / (vec3_length(a) * vec3_length(b));
+}
+
+float vec3_included_angle(const float *a, const float *b) {
+    return acos(vec3_included_angle_cos(a, b));
+}
+
 /*
 void mat3_set_rotation(float *m, const float *axis, float angle) {
     // assume axis is normalized
@@ -446,14 +454,22 @@ void mat3_set_rotation_not_normalized(float *m, const float *axis_not_normalized
     mat3_set_rotation(m, axis, angle);
 }
 
-/*
-void mat4_set_rotation(float *m, const float *axis, float angle) {
+void mat4_set_rotation_by_cos_angle(float *m, const float *axis, float c) {
     // assume axis is normalized
-    float m3[9];
-    mat3_set_rotation(m3, axis, angle);
-    mat3_to_mat4_topleft(m, m3);
+    float s = sqrtf(1. - c * c);
+    float comp_c = 1. - c;
+    memset(m, 0, 16 * sizeof(float));
+    mat4_get(m, 0, 0) = c + comp_c * axis[0] * axis[0];
+    mat4_get(m, 1, 0) = comp_c * axis[1] * axis[0] + s * axis[2];
+    mat4_get(m, 2, 0) = comp_c * axis[2] * axis[0] - s * axis[1];
+    mat4_get(m, 0, 1) = comp_c * axis[0] * axis[1] - s * axis[2];
+    mat4_get(m, 1, 1) = c + comp_c * axis[1] * axis[1];
+    mat4_get(m, 2, 1) = comp_c * axis[2] * axis[1] + s * axis[0];
+    mat4_get(m, 0, 2) = comp_c * axis[0] * axis[2] + s * axis[1];
+    mat4_get(m, 1, 2) = comp_c * axis[1] * axis[2] - s * axis[0];
+    mat4_get(m, 2, 2) = c + comp_c * axis[2] * axis[2];
+    mat4_get(m, 3, 3) = 1.f;
 }
-*/
 
 void mat4_set_rotation(float *m, const float *axis, float angle) {
     // assume axis is normalized

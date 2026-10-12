@@ -143,6 +143,10 @@ const float element_colors_list[] = {
     0.6471f, 0.1647f, 0.1647f
 };
 
+const float *element_color(unsigned int ielement) {
+    return element_colors_list + ielement * 3;
+}
+
 // atomic covalent radius, from "Dalton Trans., 2008, 2832-2838", unit is Angstrom
 const float covalence_radius_list[] = {
     0.1f , 0.31f, 0.28f,  // Ghost, H, He(1-2)

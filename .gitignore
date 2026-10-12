@@ -1,5 +1,4 @@
-Makefile
-compile.bat
+examples
 build
 bin
 include/*.frag.h

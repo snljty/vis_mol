@@ -1,99 +1,9 @@
 #include "math_utils.h"
 #include "geometry.h"
+#include "align_alloc.h"
 #include <stdio.h>
 #include <stdlib.h>
 #include <math.h>
-#include "align_alloc.h"
-
-void subdivideIcoSphereWithRepeatOnce(float **vertices, int *vertexCount,
-                            GLuint **indices, int *indexCount) {
-    // 没有去重，表面顶点有重复，对纹理贴图会有问题，纯色倒是无妨。
-    // 通常做去重得用 Hash 表，最次也要做排序。我们这个函数先不做这些。
-
-    float *vertsOld = *vertices;
-    int vertCountOld = *vertexCount;
-    GLuint *idxOld = *indices;
-    int idxCountOld = *indexCount;
-
-    int numFacesOld = idxCountOld / 3;
-    int numFaces = numFacesOld * 4;
-    // 每个面都取三条边中点，构成4个新的三角形，然后归一化。
-    // 每个面的三个原来的顶点都沿用原来的序号，新的顶点追加到后面
-    int vertCount = vertCountOld + numFacesOld * 3;
-    int idxCount = numFaces * 3;
-
-    // 新的顶点和索引
-    float *verts = (float *)my_malloc(vertCount * 6 * sizeof(float));
-    GLuint *idx = (GLuint *)my_malloc(idxCount * sizeof(GLuint));
-    if (!verts || !idx) {
-        fprintf(stderr, "Error! Cannot allocate memory.\n");
-        exit(EXIT_FAILURE);
-    }
-
-    // 先拷贝旧的顶点
-    memcpy(verts, vertsOld, vertCountOld * 6 * sizeof(float));
-
-    // 顶点数组索引，从新的顶点开始，注意不是顶点索引，每个顶点有 6 个 float
-    int v = vertCountOld * 6;
-    // 顶点序号索引
-    int k = 0;
-
-    for (int iFace = 0; iFace < numFacesOld; ++ iFace) {
-        // 原有的三个顶点的序号
-        int n1 = idxOld[iFace * 3];
-        int n2 = idxOld[iFace * 3 + 1];
-        int n3 = idxOld[iFace * 3 + 2];
-
-        // 每条边的中点
-        float midPoint[3];
-
-        // 新的顶点的序号
-        int n4 = vertCountOld + iFace * 3;
-        int n5 = vertCountOld + iFace * 3 + 1;
-        int n6 = vertCountOld + iFace * 3 + 2;
-
-        midPoint[0] = (verts[n1 * 6    ] + verts[n2 * 6    ]) / 2.f;
-        midPoint[1] = (verts[n1 * 6 + 1] + verts[n2 * 6 + 1]) / 2.f;
-        midPoint[2] = (verts[n1 * 6 + 2] + verts[n2 * 6 + 2]) / 2.f;
-
-        vec3_normalize(midPoint);
-        memcpy(verts + v, midPoint, 3 * sizeof(float)); v += 3;
-        memcpy(verts + v, midPoint, 3 * sizeof(float)); v += 3;
-
-        midPoint[0] = (verts[n2 * 6    ] + verts[n3 * 6    ]) / 2.f;
-        midPoint[1] = (verts[n2 * 6 + 1] + verts[n3 * 6 + 1]) / 2.f;
-        midPoint[2] = (verts[n2 * 6 + 2] + verts[n3 * 6 + 2]) / 2.f;
-
-        vec3_normalize(midPoint);
-        memcpy(verts + v, midPoint, 3 * sizeof(float)); v += 3;
-        memcpy(verts + v, midPoint, 3 * sizeof(float)); v += 3;
-
-        midPoint[0] = (verts[n3 * 6    ] + verts[n1 * 6    ]) / 2.f;
-        midPoint[1] = (verts[n3 * 6 + 1] + verts[n1 * 6 + 1]) / 2.f;
-        midPoint[2] = (verts[n3 * 6 + 2] + verts[n1 * 6 + 2]) / 2.f;
-
-        vec3_normalize(midPoint);
-        memcpy(verts + v, midPoint, 3 * sizeof(float)); v += 3;
-        memcpy(verts + v, midPoint, 3 * sizeof(float)); v += 3;
-
-        // 设置新三边中点顶点索引
-        idx[k ++] = n1; idx[k ++] = n4; idx[k ++] = n6;
-        idx[k ++] = n4; idx[k ++] = n2; idx[k ++] = n5;
-        idx[k ++] = n6; idx[k ++] = n5; idx[k ++] = n3;
-        idx[k ++] = n4; idx[k ++] = n5; idx[k ++] = n6;
-    }
-
-    // 释放旧数组内存，交换成新数组
-    my_free(vertsOld); vertsOld = NULL;
-    my_free(idxOld); idxOld = NULL;
-
-    *vertices = verts;
-    *vertexCount = vertCount;
-    *indices = idx;
-    *indexCount = idxCount;
-
-    verts = NULL; idx = NULL;
-}
 
 #ifdef HAVE_UTHASH
 void subdivideIcoSphereOnce(float **vertices, int *vertexCount,
@@ -378,7 +288,7 @@ void subdivideIcoSphereOnce(float **vertices, int *vertexCount,
         idx[k ++] = n4; idx[k ++] = n5; idx[k ++] = n6;
     }
 
-    // 释放 (a, b, mid) 的内存
+    // 释放 (a, b) 的内存
     my_free(vertMap); vertMap = NULL;
 
     // 释放旧数组内存，交换成新数组
@@ -503,6 +413,7 @@ void generateIcoSphere(int numSubdivisionsIter,
 
 
 // ==================== 生成几何体数据 ====================
+/*
 // 生成单位球体，南北极分别只用一个点（半径=1，中心在原点，Y轴向上）
 void generateGeoSphere(int sectors, int stacks,
                     float **vertices, int *vertexCount,
@@ -579,11 +490,9 @@ void generateGeoSphere(int sectors, int stacks,
         int k1 = (i - 1) * (sectors + 1) + 1; // 上层第0个顶点序号
         int k2 = k1 + sectors + 1; // 下层第0个顶点序号
         // 逆时针三角形
-        /*
-            k1 + 1  -  k1
-               |       |
-            k2 + 1  -  k2    
-        */
+        //  k1 + 1  -  k1
+        //     |       |
+        //  k2 + 1  -  k2    
         for (int j = 0; j < sectors; ++ j, ++ k1, ++ k2) {
             idx[k ++] = k1; // 上层第j个顶点
             idx[k ++] = k1 + 1; // 上层第j+1个顶点
@@ -609,93 +518,7 @@ void generateGeoSphere(int sectors, int stacks,
 
     verts = NULL; idx = NULL;
 }
-
-// 生成单位球体（半径=1，中心在原点，Y轴向上）
-void generateGeoSphereRepeatPole(int sectors, int stacks,
-                    float **vertices, int *vertexCount,
-                    GLuint **indices, int *indexCount) {
-
-    // 北极点和南极点都重复了sectors + 1次，纯色不用这么做，但是uv纹理贴图要
-
-    if (stacks < 2 || sectors < 3) {
-        fprintf(stderr, "Error! At least 2 stacks and 3 sectors are required.\n");
-        exit(EXIT_FAILURE);
-    }
-    // 经纬球。sectors是多少个经度区域，stacks是多少个纬度区域。
-    // 顶点个数。南北极有重复但是不重要。
-    int vertCount = (stacks + 1) * (sectors + 1);
-    // 每个片段都按四边形处理，每个四边形拆成两个三角形，所以共6个索引。但是最上层和最下层分别少了sectors个小三角，所以要减去6 * sectors
-    int idxCount = (stacks - 1) * sectors * 3 * 2;
-
-    // verts依次排每个顶点，每个顶点用6个坐标，前3个位置，后3个法线。大循环纬度从北纬0°到南纬0°。小循环是里面经度。
-    float *verts = (float *)my_malloc(vertCount * 6 * sizeof(float));
-    GLuint *idx = (GLuint *)my_malloc(idxCount * sizeof(GLuint));
-
-    if (!verts || !idx) {
-        fprintf(stderr, "Error! Cannot allocate memory.\n");
-        exit(EXIT_FAILURE);
-    }
-    float sectorStep = 2. * (float)M_PI / sectors;
-    float stackStep = (float)M_PI / stacks;
-
-    // OpenGL 用y向上，x向右，z向前。不像数学中通常用z向上。
-    int v = 0;
-    for (int i = 0; i <= stacks; ++ i) {
-        float stackAngle = (float)M_PI / 2. - i * stackStep; // 从 pi/2 到 -pi/2
-        float horizRadius = cosf(stackAngle);  // 水平面上的半径
-        float y = sinf(stackAngle);   // 高度
-
-        for (int j = 0; j <= sectors; ++ j) {
-            float sectorAngle = j * sectorStep;
-            float x = horizRadius * cosf(sectorAngle);
-            float z = horizRadius * sinf(sectorAngle);
-
-            // 位置
-            verts[v ++] = x;
-            verts[v ++] = y;
-            verts[v ++] = z;
-            // 法线（单位球，所以法线等于位置）
-            verts[v ++] = x;
-            verts[v ++] = y;
-            verts[v ++] = z;
-        }
-    }
-
-    // 片元索引（三角形）
-    int k = 0;
-    // 第i层和第i+1层之间的三角形
-    for (int i = 0; i < stacks; ++ i) {
-        int k1 = i * (sectors + 1); // 上层第0个顶点序号
-        int k2 = k1 + sectors + 1; // 下层第0个顶点序号
-        // 逆时针三角形
-        /*
-            k1 + 1  -  k1
-               |       |
-            k2 + 1  -  k2    
-        */
-        for (int j = 0; j < sectors; ++ j, ++ k1, ++ k2) {
-            // 北极附近上层是同一个点，所以不要
-            // 倒三角
-            if (i != 0) {
-                idx[k ++] = k1; // 上层第j个顶点
-                idx[k ++] = k1 + 1; // 上层第j+1个顶点
-                idx[k ++] = k2; // 下层第j个顶点
-            }
-            // 南极附近下层是同一个点，所以不要
-            // 正三角
-            if (i != (stacks - 1)) {
-                idx[k ++] = k1 + 1;
-                idx[k ++] = k2 + 1;
-                idx[k ++] = k2;
-            }
-        }
-    }
-
-    *vertices = verts;
-    *vertexCount = vertCount;
-    *indices = idx;
-    *indexCount = idxCount;
-}
+*/
 
 // 生成单位圆柱体（半径=1，高度=1，中心在原点，Y轴为轴，底面y=-0.5，顶面y=0.5）
 void generateCylinder(int sectors,
@@ -765,11 +588,9 @@ void generateCylinder(int sectors,
     // 索引
     int k = 0;
     // 侧面
-    /*
-    next + 1  -  base + 1
-        |           |
-      next    -   base
-    */
+    // next + 1  -  base + 1
+    //     |           |
+    //   next    -   base
     for (int j = 0; j < sectors; ++ j) {
         int base = j * 2; // 下面序号
         int next = base + 2;
