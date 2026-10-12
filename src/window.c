@@ -15,6 +15,9 @@ const float STICK_RADIUS = 0.1f;
 // 分子
 Molecule *mol = NULL;
 
+// 是否用两种颜色显示化学键
+const bool bonds_two_colors = true;
+
 // gl* 这些函数报错通常不返回错误码，而是设定全局错误标志：
 // GLenum err = glGetError();
 // 每次调用只返回一个错误，如果多个错误，要多次调用取完。
@@ -169,7 +172,7 @@ void display() {
     glUniform3f(glGetUniformLocation(shaderProgram, "lightColor"), 1.0f, 1.0f, 1.0f); // 纯白，这三个数代表光颜色三个分量的强度。
     glUniform3f(glGetUniformLocation(shaderProgram, "ambientColor"), 0.2f, 0.2f, 0.2f); // 环境光，很暗，通常只需要一个
 
-    // M V P矩阵上传顺序无所谓，这只是习惯。
+    // M V P 矩阵上传顺序无所谓，这只是习惯。
 
     // 投影矩阵
     float projection[16];
@@ -245,9 +248,8 @@ void display() {
     // 按照 model = T @ R @ S 顺序乘法。
     // 为了方便算 model 矩阵左上角3 * 3的逆，我们先把scale以外的部分乘起来，最后乘scale。
 
-    // model 矩阵和 model3_inv_transpose 矩阵，每个球/圆柱实例用相同的内存。
+    // model 矩阵和 model3_inv_transpose 矩阵，以及 scale 向量，，每个球/圆柱实例用相同的内存。
     float model[16], model3_inv_transpose[9], scale[3];
-    float T_half_cylinder[16];
 
     // ========== 绘制化学键 ==========
     // 绑定圆柱的 VAO
@@ -258,61 +260,192 @@ void display() {
     float bond_length;
     float axis[3];
     float translation[3];
+    float axis_length;
+    float shift[3]; // 圆柱从中心在原点，到一端在原点的平移
     const float cylinder_height_orientation[3] = {0.f, 1.f, 0.f};
-    for (unsigned int ibond = 0u; ibond < mol->nbonds; ++ ibond) {
-        unsigned int iatom = mol->bonds_indices[ibond * 2];
-        unsigned int jatom = mol->bonds_indices[ibond * 2 + 1];
-        vec3_sub(bond_vector, atom_coord(mol, jatom), atom_coord(mol, iatom));
-        bond_length = vec3_length(bond_vector);
-        scale[0] = scale[2] = STICK_RADIUS; scale[1] = bond_length;
+    if (bonds_two_colors) {
+        float bond_vector_i[3], bond_vector_j[3];
+        float bond_length_i, bond_length_j;
+        float proportion;
+        for (unsigned int ibond = 0u; ibond < mol->nbonds; ++ ibond) {
+            unsigned int iatom = mol->bonds_indices[ibond * 2];
+            unsigned int jatom = mol->bonds_indices[ibond * 2 + 1];
+            vec3_sub(bond_vector, atom_coord(mol, jatom), atom_coord(mol, iatom));
+            bond_length = vec3_length(bond_vector);
+            proportion = mol->atomic_covalence_radius[iatom] / (mol->atomic_covalence_radius[iatom] + mol->atomic_covalence_radius[jatom]);
+            vec3_copy(bond_vector_i, bond_vector);
+            vec3_scale(bond_vector_i, proportion);
+            vec3_copy(bond_vector_j, bond_vector);
+            vec3_scale(bond_vector_j, 1.f - proportion);
+            bond_length_i = bond_length * proportion;
+            bond_length_j = bond_length * (1.f - proportion);
+            scale[0] = scale[2] = STICK_RADIUS;
 
-        // 用叉乘计算旋转
-        // bond_vector 和 y 几乎共线时候有数值问题，而且有退化情况，必须单独处理。
-        // vec3_cross(axis, cylinder_height_orientation, bond_vector);
-        // if (vec3_length(axis) < 1e-6f) {      // 键∥Y
-        //     if (bond_vector[1] > 0.f)
-        //         mat4_identity(model);                        // d=+Y：无需旋转
-        //     else
-        //         mat4_set_rotation_x(model, (float)M_PI);     // d=-Y：绕 X 转 180°
-        // } else {
-        //     vec3_normalize(axis);
-        //     mat4_set_rotation_by_cos_angle(model, axis,
-        //         vec3_included_angle_cos(cylinder_height_orientation, bond_vector));
-        // }
+            // 先画 i 那一半
+            scale[1] = bond_length_i;
+            // 用叉乘计算旋转
+            // bond_vector 和 y 几乎共线时候有数值问题，而且有退化情况，必须单独处理。
+            // vec3_cross(axis, cylinder_height_orientation, bond_vector_i);
+            // axis_length = vec3_length(axis);
+            // if (axis_length < 1e-6f) {      // 键∥Y
+            //     if (bond_vector_i[1] >= 0.f)
+            //         mat4_identity(model);                        // d=+Y：无需旋转
+            //     else
+            //         mat4_set_rotation_x(model, (float)M_PI);     // d=-Y：绕 X 转 180°
+            // } else {
+            //     vec3_scale_inverse(axis, axis_length);
+            //     mat4_set_rotation_by_cos_angle(model, axis,
+            //         vec3_included_angle_cos(cylinder_height_orientation, bond_vector_i));
+            // }
 
-        // 另一种旋转计算方法，不用算叉乘和夹角，数值上更友好，即使近退化情况，只要不是严格退化，尽管转轴是错的，结果依然是对的。
-        // axis 选取目标方向和 y 轴方向的平均值的一半，转 180° 即可。感觉比叉乘的方法更省事。
-        // bond_vector ≈ -y 时候有退化情况，要单独处理。
-        vec3_copy(axis, bond_vector);
-        axis[1] += bond_length;               // = bond_length * (d + Y)
-        if (vec3_length(axis) < 1e-6f) {      // d ≈ -Y 的退化情形
-            mat4_set_rotation_x(model, (float)M_PI);   // 绕 X 轴转 180°，把 +Y → -Y
-        } else {
-            vec3_normalize(axis);
-            mat4_set_rotation_by_cos_angle(model, axis, -1.f);
+            // 另一种旋转计算方法，不用算叉乘和夹角，数值上更友好，即使近退化情况，只要不是严格退化，尽管转轴是错的，结果依然是对的。
+            // axis 选取目标方向和 y 轴方向的平均值的一半，转 180° 即可。感觉比叉乘的方法更省事。
+            // bond_vector ≈ -y 时候有退化情况，要单独处理。
+            vec3_copy(axis, bond_vector_i);
+            axis[1] += bond_length_i;               // = bond_length * (d + Y)
+            axis_length = vec3_length(axis);
+            if (axis_length < 1e-6f) {      // d ≈ -Y 的退化情形
+                mat4_set_rotation_x(model, (float)M_PI);   // 绕 X 轴转 180°，把 +Y → -Y
+            } else {
+                vec3_scale_inverse(axis, axis_length);
+                mat4_set_rotation_by_cos_angle(model, axis, -1.f);
+            }
+
+            // 现在圆柱顶端应该在 bond_vector 的一半的位置，但是圆柱底端要平移到 iatom 的坐标位置
+            vec3_copy(shift, bond_vector_i);
+            vec3_scale_inverse(shift, 2.f);
+            vec3_add(translation, atom_coord(mol, iatom), shift);
+            mat4_prepend_translation(model, translation);
+
+            // 这里model还不包括S
+            mat4_topleft_to_mat3(model3_inv_transpose, model);
+            mat3_append_inverse_scale(model3_inv_transpose, scale);
+            glUniformMatrix3fv(glGetUniformLocation(shaderProgram, "model3_inverse_transpose"), 1, GL_FALSE, model3_inv_transpose);
+            // 缩放到正常尺寸，最后再用
+            mat4_append_scale(model, scale);
+            glUniformMatrix4fv(glGetUniformLocation(shaderProgram, "model"), 1, GL_FALSE, model);
+            // 颜色
+            glUniform3fv(glGetUniformLocation(shaderProgram, "objectColor"), 1, element_color(mol->atomic_indices[iatom]));
+            // GL_TRIANGLES：每 3 个索引 = 1 个三角形。
+            // 第二个参数是索引的个数，即三角形个数的3倍。
+            // 第三个参数是索引的数据类型（EBO 里存的是 unsigned int）。
+            // 最后一个参数是从EBO的哪个偏移开始读。
+            // 这里才是真实绘制，或者说实例化，用当前绑定的着色器（含所有Uniform，比如上传的model矩阵和物体颜色等信息）和当前绑定的VAO绘制一个物体。
+            // 我们这里是用glUseProgram(shaderProgram)来对所有物体用了相同着色器。如果真的要不同物体用不同着色器，这里应该激活新的着色器。
+            glDrawElements(GL_TRIANGLES, cylinderIdxCount, GL_UNSIGNED_INT, 0);
+
+            // 再画 j 那一半
+            scale[1] = bond_length_j;
+            // 用叉乘计算旋转
+            // bond_vector 和 y 几乎共线时候有数值问题，而且有退化情况，必须单独处理。
+            // vec3_cross(axis, cylinder_height_orientation, bond_vector_i);
+            // axis_length = vec3_length(axis);
+            // if (axis_length < 1e-6f) {      // 键∥Y
+            //     if (bond_vector_j[1] >= 0.f)
+            //         mat4_identity(model);                        // d=+Y：无需旋转
+            //     else
+            //         mat4_set_rotation_x(model, (float)M_PI);     // d=-Y：绕 X 转 180°
+            // } else {
+            //     vec3_scale_inverse(axis, axis_length);
+            //     mat4_set_rotation_by_cos_angle(model, axis,
+            //         vec3_included_angle_cos(cylinder_height_orientation, bond_vector_i));
+            // }
+
+            // 另一种旋转计算方法，不用算叉乘和夹角，数值上更友好，即使近退化情况，只要不是严格退化，尽管转轴是错的，结果依然是对的。
+            // axis 选取目标方向和 y 轴方向的平均值的一半，转 180° 即可。感觉比叉乘的方法更省事。
+            // bond_vector ≈ -y 时候有退化情况，要单独处理。
+            vec3_copy(axis, bond_vector_j);
+            axis[1] += bond_length_j;               // = bond_length * (d + Y)
+            axis_length = vec3_length(axis);
+            if (axis_length < 1e-6f) {      // d ≈ -Y 的退化情形
+                mat4_set_rotation_x(model, (float)M_PI);   // 绕 X 轴转 180°，把 +Y → -Y
+            } else {
+                vec3_scale_inverse(axis, axis_length);
+                mat4_set_rotation_by_cos_angle(model, axis, -1.f);
+            }
+
+            // 现在圆柱顶端应该在 bond_vector 的一半的位置，但是圆柱顶端要平移到 jatom 的坐标位置
+            vec3_copy(shift, bond_vector_j);
+            vec3_scale_inverse(shift, 2.f);
+            vec3_sub(translation, atom_coord(mol, jatom), shift);
+            mat4_prepend_translation(model, translation);
+
+            // 这里model还不包括S
+            mat4_topleft_to_mat3(model3_inv_transpose, model);
+            mat3_append_inverse_scale(model3_inv_transpose, scale);
+            glUniformMatrix3fv(glGetUniformLocation(shaderProgram, "model3_inverse_transpose"), 1, GL_FALSE, model3_inv_transpose);
+            // 缩放到正常尺寸，最后再用
+            mat4_append_scale(model, scale);
+            glUniformMatrix4fv(glGetUniformLocation(shaderProgram, "model"), 1, GL_FALSE, model);
+            // 颜色
+            glUniform3fv(glGetUniformLocation(shaderProgram, "objectColor"), 1, element_color(mol->atomic_indices[jatom]));
+            // GL_TRIANGLES：每 3 个索引 = 1 个三角形。
+            // 第二个参数是索引的个数，即三角形个数的3倍。
+            // 第三个参数是索引的数据类型（EBO 里存的是 unsigned int）。
+            // 最后一个参数是从EBO的哪个偏移开始读。
+            // 这里才是真实绘制，或者说实例化，用当前绑定的着色器（含所有Uniform，比如上传的model矩阵和物体颜色等信息）和当前绑定的VAO绘制一个物体。
+            // 我们这里是用glUseProgram(shaderProgram)来对所有物体用了相同着色器。如果真的要不同物体用不同着色器，这里应该激活新的着色器。
+            glDrawElements(GL_TRIANGLES, cylinderIdxCount, GL_UNSIGNED_INT, 0);
         }
+    } else {
+        for (unsigned int ibond = 0u; ibond < mol->nbonds; ++ ibond) {
+            unsigned int iatom = mol->bonds_indices[ibond * 2];
+            unsigned int jatom = mol->bonds_indices[ibond * 2 + 1];
+            vec3_sub(bond_vector, atom_coord(mol, jatom), atom_coord(mol, iatom));
+            bond_length = vec3_length(bond_vector);
+            scale[0] = scale[2] = STICK_RADIUS; scale[1] = bond_length;
 
-        // 现在圆柱顶端应该在 bond_vector 的一半的位置，但是圆柱中心要平移到 iatom 的坐标位置
-        vec3_scale_inverse(bond_vector, 2.f);
-        vec3_add(translation, atom_coord(mol, iatom), bond_vector);
-        mat4_prepend_translation(model, translation);
+            // 用叉乘计算旋转
+            // bond_vector 和 y 几乎共线时候有数值问题，而且有退化情况，必须单独处理。
+            // vec3_cross(axis, cylinder_height_orientation, bond_vector);
+            // axis_length = vec3_length(axis);
+            // if (axis_length < 1e-6f) {      // 键∥Y
+            //     if (bond_vector[1] >= 0.f)
+            //         mat4_identity(model);                        // d=+Y：无需旋转
+            //     else
+            //         mat4_set_rotation_x(model, (float)M_PI);     // d=-Y：绕 X 转 180°
+            // } else {
+            //     vec3_scale_inverse(axis, axis_length);
+            //     mat4_set_rotation_by_cos_angle(model, axis,
+            //         vec3_included_angle_cos(cylinder_height_orientation, bond_vector));
+            // }
 
-        // 这里model还不包括S
-        mat4_topleft_to_mat3(model3_inv_transpose, model);
-        mat3_append_inverse_scale(model3_inv_transpose, scale);
-        glUniformMatrix3fv(glGetUniformLocation(shaderProgram, "model3_inverse_transpose"), 1, GL_FALSE, model3_inv_transpose);
-        // 缩放到正常尺寸，最后再用
-        mat4_append_scale(model, scale);
-        glUniformMatrix4fv(glGetUniformLocation(shaderProgram, "model"), 1, GL_FALSE, model);
-        // 颜色
-        glUniform3f(glGetUniformLocation(shaderProgram, "objectColor"), 0.6f, 0.6f, 0.6f);
-        // GL_TRIANGLES：每 3 个索引 = 1 个三角形。
-        // 第二个参数是索引的个数，即三角形个数的3倍。
-        // 第三个参数是索引的数据类型（EBO 里存的是 unsigned int）。
-        // 最后一个参数是从EBO的哪个偏移开始读。
-        // 这里才是真实绘制，或者说实例化，用当前绑定的着色器（含所有Uniform，比如上传的model矩阵和物体颜色等信息）和当前绑定的VAO绘制一个物体。
-        // 我们这里是用glUseProgram(shaderProgram)来对所有物体用了相同着色器。如果真的要不同物体用不同着色器，这里应该激活新的着色器。
-        glDrawElements(GL_TRIANGLES, cylinderIdxCount, GL_UNSIGNED_INT, 0);
+            // 另一种旋转计算方法，不用算叉乘和夹角，数值上更友好，即使近退化情况，只要不是严格退化，尽管转轴是错的，结果依然是对的。
+            // axis 选取目标方向和 y 轴方向的平均值的一半，转 180° 即可。感觉比叉乘的方法更省事。
+            // bond_vector ≈ -y 时候有退化情况，要单独处理。
+            vec3_copy(axis, bond_vector);
+            axis[1] += bond_length;               // = bond_length * (d + Y)
+            axis_length = vec3_length(axis);
+            if (axis_length < 1e-6f) {      // d ≈ -Y 的退化情形
+                mat4_set_rotation_x(model, (float)M_PI);   // 绕 X 轴转 180°，把 +Y → -Y
+            } else {
+                vec3_scale_inverse(axis, axis_length);
+                mat4_set_rotation_by_cos_angle(model, axis, -1.f);
+            }
+
+            // 现在圆柱顶端应该在 bond_vector 的一半的位置，但是圆柱底端要平移到 iatom 的坐标位置
+            vec3_copy(shift, bond_vector);
+            vec3_scale_inverse(shift, 2.f);
+            vec3_add(translation, atom_coord(mol, iatom), shift);
+            mat4_prepend_translation(model, translation);
+
+            // 这里model还不包括S
+            mat4_topleft_to_mat3(model3_inv_transpose, model);
+            mat3_append_inverse_scale(model3_inv_transpose, scale);
+            glUniformMatrix3fv(glGetUniformLocation(shaderProgram, "model3_inverse_transpose"), 1, GL_FALSE, model3_inv_transpose);
+            // 缩放到正常尺寸，最后再用
+            mat4_append_scale(model, scale);
+            glUniformMatrix4fv(glGetUniformLocation(shaderProgram, "model"), 1, GL_FALSE, model);
+            // 颜色，这里固定灰色
+            glUniform3f(glGetUniformLocation(shaderProgram, "objectColor"), 0.6f, 0.6f, 0.6f);
+            // GL_TRIANGLES：每 3 个索引 = 1 个三角形。
+            // 第二个参数是索引的个数，即三角形个数的3倍。
+            // 第三个参数是索引的数据类型（EBO 里存的是 unsigned int）。
+            // 最后一个参数是从EBO的哪个偏移开始读。
+            // 这里才是真实绘制，或者说实例化，用当前绑定的着色器（含所有Uniform，比如上传的model矩阵和物体颜色等信息）和当前绑定的VAO绘制一个物体。
+            // 我们这里是用glUseProgram(shaderProgram)来对所有物体用了相同着色器。如果真的要不同物体用不同着色器，这里应该激活新的着色器。
+            glDrawElements(GL_TRIANGLES, cylinderIdxCount, GL_UNSIGNED_INT, 0);
+        }
     }
 
     // 解绑圆柱的 VAO，这里不做原理上也行，而且通常这里不做解绑
@@ -329,9 +462,7 @@ void display() {
         mat4_set_translation(model, atom_coord(mol, iatom)[0], atom_coord(mol, iatom)[1], atom_coord(mol, iatom)[2]);
         // 这里model还不包括S
         mat3_identity(model3_inv_transpose);
-        scale[0] = mol->atomic_covalence_radius[iatom] / 2.f;
-        scale[1] = mol->atomic_covalence_radius[iatom] / 2.f;
-        scale[2] = mol->atomic_covalence_radius[iatom] / 2.f;
+        scale[0] = scale[1] = scale[2] = mol->atomic_covalence_radius[iatom] / 2.f;
         mat3_append_inverse_scale(model3_inv_transpose, scale);
         glUniformMatrix3fv(glGetUniformLocation(shaderProgram, "model3_inverse_transpose"), 1, GL_FALSE, model3_inv_transpose);
         mat4_append_scale(model, scale);

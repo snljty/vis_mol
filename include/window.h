@@ -26,6 +26,9 @@ extern const float STICK_RADIUS;
 // 分子本身
 extern Molecule *mol;
 
+// 是否用两种颜色画化学键
+extern const bool bonds_two_colors;
+
 // 创建 VAO（包含 VBO 和 EBO），返回 VAO 编号
 GLuint createVAO(float *vertices, int vertexCount,
                        GLuint *indices, int indexCount);

@@ -26,10 +26,9 @@ GLuint compileShader(GLenum type, const char *source) {
         int logLen;
         glGetShaderiv(shader, GL_INFO_LOG_LENGTH, &logLen);
         if (logLen) {
-            char *infoLog = (char *)malloc(logLen);
+            char infoLog[logLen];
             glGetShaderInfoLog(shader, logLen, NULL, infoLog);
             fprintf(stderr, "ERROR::SHADER::COMPILATION_FAILED\n%s\n", infoLog);
-            free(infoLog); infoLog = NULL;
         } else {
             fprintf(stderr, "ERROR::SHADER::COMPILATION_FAILED\n");
         }
@@ -54,10 +53,9 @@ GLuint createShaderProgram(const char *vertexSource, const char *fragmentSource)
         int logLen;
         glGetProgramiv(program, GL_INFO_LOG_LENGTH, &logLen);
         if (logLen) {
-            char *infoLog = (char *)malloc(logLen);
+            char infoLog[logLen];
             glGetProgramInfoLog(program, logLen, NULL, infoLog);
             fprintf(stderr, "ERROR::PROGRAM::LINKING_FAILED\n%s\n", infoLog);
-            free(infoLog); infoLog = NULL;
         } else {
             fprintf(stderr, "ERROR::PROGRAM::LINKING_FAILED\n");
         }
