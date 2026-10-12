@@ -77,6 +77,31 @@ inline float *atom_distance(Molecule *mol, unsigned int iatom, unsigned int jato
 }
 
 
+void init_molecule(Molecule *mol) {
+    mol->natoms = 0u;;
+    memset(mol->title, 0, BUFSIZ + 1);
+    mol->elements = NULL;
+    mol->atomic_indices = NULL;
+    mol->atomic_covalence_radius = NULL;
+    mol->coordinates = NULL;
+    mol->connections = NULL;
+    mol->distances = NULL;
+    memset(mol->box, 0, 9 * sizeof(float));
+    mol->bonds_indices = NULL;
+    mol->nbonds = 0u;
+    mol->ndim = 0u;
+}
+
+Molecule *new_molecule() {
+    Molecule *mol = (Molecule *)my_malloc(sizeof(Molecule));
+    if (!mol) {
+        fprintf(stderr, "Error! Cannot allocate memory.\n");
+        exit(EXIT_FAILURE);
+    }
+    init_molecule(mol);
+    return mol;
+}
+
 Molecule *read_molecule(const char *ifilename) {
     // check file availablility
     if (!ifilename) {
@@ -120,11 +145,7 @@ Molecule *read_xyz(const char *ifilename) {
         exit(EXIT_FAILURE);
     }
 
-    Molecule *mol = (Molecule *)my_malloc(sizeof(Molecule));
-    if (!mol) {
-        fprintf(stderr, "Error! Cannot allocate memory.\n");
-        exit(EXIT_FAILURE);
-    }
+    Molecule *mol = new_molecule();
 
     char line[BUFSIZ + 1] = "";
     mol->natoms = 0u;
@@ -148,7 +169,6 @@ Molecule *read_xyz(const char *ifilename) {
 
     const char *line_pos = NULL;
     if ((line_pos = strstr(mol->title, "Tv_1:"))) {
-        if (!mol->box) allocate_molecule_box(mol);
         float coord[3];
         if (sscanf(line_pos + strlen("Tv_1:"), "%g%g%g", coord, coord + 1, coord + 2) == 3) {
             memcpy(mol->box, coord, 3 * sizeof(float));
@@ -214,11 +234,7 @@ Molecule *read_gjf(const char *ifilename) {
         exit(EXIT_FAILURE);
     }
 
-    Molecule *mol = (Molecule *)my_malloc(sizeof(Molecule));
-    if (!mol) {
-        fprintf(stderr, "Error! Cannot allocate memory.\n");
-        exit(EXIT_FAILURE);
-    }
+    Molecule *mol = new_molecule();
 
     char line[BUFSIZ + 1] = "";
 
@@ -322,7 +338,6 @@ Molecule *read_gjf(const char *ifilename) {
                 fprintf(stderr, "Error! Dimension of box is too large.\n");
                 exit(EXIT_FAILURE);
             }
-            if (!mol->box) allocate_molecule_box(mol);
             memcpy(mol->box + ibox * 3, coord, 3 * sizeof(float));
             ++ ibox;
         }
@@ -356,11 +371,7 @@ Molecule *read_out(const char *ifilename) {
         exit(EXIT_FAILURE);
     }
 
-    Molecule *mol = (Molecule *)my_malloc(sizeof(Molecule));
-    if (!mol) {
-        fprintf(stderr, "Error! Cannot allocate memory.\n");
-        exit(EXIT_FAILURE);
-    }
+    Molecule *mol = new_molecule();
 
     mol->natoms = 0u;
     nullify_molecule(mol);
@@ -452,7 +463,6 @@ Molecule *read_out(const char *ifilename) {
                         fprintf(stderr, "Error! Dimension of box is too large.\n");
                         exit(EXIT_FAILURE);
                     }
-                    if (!mol->box) allocate_molecule_box(mol);
                     memcpy(mol->box + ibox * 3, coord, 3 * sizeof(float));
                     ++ ibox;
                 }
@@ -488,11 +498,7 @@ Molecule *read_fch(const char *ifilename) {
         exit(EXIT_FAILURE);
     }
 
-    Molecule *mol = (Molecule *)my_malloc(sizeof(Molecule));
-    if (!mol) {
-        fprintf(stderr, "Error! Cannot allocate memory.\n");
-        exit(EXIT_FAILURE);
-    }
+    Molecule *mol = new_molecule();
 
     mol->natoms = 0u;
     nullify_molecule(mol);
@@ -537,7 +543,6 @@ Molecule *read_fch(const char *ifilename) {
                 fprintf(stderr, "Error! Cannot read dimension of system.\n");
                 exit(EXIT_FAILURE);
             }
-            if (mol->ndim && !mol->box) allocate_molecule_box(mol);
         }
     }
 
@@ -677,10 +682,6 @@ Molecule *read_fch(const char *ifilename) {
 
 void destroy_molecule(Molecule *mol) {
     if (!mol) return;
-    if (mol->box) {
-        my_free(mol->box);
-        mol->box = NULL;
-    }
     if (mol->natoms) {
         if (mol->distances) {
             my_free(mol->distances);
@@ -705,6 +706,10 @@ void destroy_molecule(Molecule *mol) {
         if (mol->elements) {
             my_free(mol->elements);
             mol->elements = NULL;
+        }
+        if (mol->bonds_indices) {
+            my_free(mol->bonds_indices);
+            mol->bonds_indices = NULL;
         }
         mol->natoms = 0u;
         mol->nbonds = 0u;
@@ -747,6 +752,18 @@ void get_intramolecular_connectivity(Molecule *mol) {
 
     my_free(atomic_covalence_radius_sum);
     atomic_covalence_radius_sum = NULL;
+
+    mol->bonds_indices = (unsigned int*)my_malloc(mol->nbonds * 2 * sizeof(unsigned int));
+    unsigned int ibond = 0u;
+    for (unsigned int iatom = 0u; iatom < mol->natoms; ++ iatom) {
+        for (unsigned int jatom = iatom + 1; jatom < mol->natoms; ++ jatom) {
+            if (*atom_connection(mol, iatom, jatom)) {
+                mol->bonds_indices[ibond * 2    ] = iatom;
+                mol->bonds_indices[ibond * 2 + 1] = jatom;
+                ++ ibond;
+            }
+        }
+    }
 }
 */
 
@@ -772,6 +789,18 @@ void get_intramolecular_connectivity(Molecule *mol) {
                 *atom_connection(mol, iatom, jatom) = (unsigned char)1u;
                 *atom_connection(mol, jatom, iatom) = (unsigned char)1u;
                 ++ mol->nbonds;
+            }
+        }
+    }
+
+    mol->bonds_indices = (unsigned int*)my_malloc(mol->nbonds * 2 * sizeof(unsigned int));
+    unsigned int ibond = 0u;
+    for (unsigned int iatom = 0u; iatom < mol->natoms; ++ iatom) {
+        for (unsigned int jatom = iatom + 1; jatom < mol->natoms; ++ jatom) {
+            if (*atom_connection(mol, iatom, jatom)) {
+                mol->bonds_indices[ibond * 2    ] = iatom;
+                mol->bonds_indices[ibond * 2 + 1] = jatom;
+                ++ ibond;
             }
         }
     }
@@ -831,19 +860,8 @@ void allocate_molecule_memory(Molecule *mol) {
           fprintf(stderr, "Error! Cannot allocate memory.\n");
           exit(EXIT_FAILURE);
     }
-    mol->nbonds = 0u;
     memset(mol->connections, 0, mol->natoms * mol->natoms);
     memset(mol->distances, 0, mol->natoms * mol->natoms * sizeof(float));
-}
-
-void allocate_molecule_box(Molecule *mol) {
-    if (mol->box) my_free(mol->box);
-    mol->box = (float *)my_malloc(9 * sizeof(float));
-    if (!mol->box) {
-          fprintf(stderr, "Error! Cannot allocate memory.\n");
-          exit(EXIT_FAILURE);
-    }
-    memset(mol->box, 0, 9 * sizeof(float));
 }
 
 void set_atomic_properties(Molecule *mol, unsigned int iatom) {
@@ -864,7 +882,6 @@ void nullify_molecule(Molecule *mol) {
     mol->atomic_covalence_radius = NULL;
     mol->coordinates = NULL;
     mol->connections = NULL;
-    mol->box = NULL;
     mol->ndim = 0u;
 }
 

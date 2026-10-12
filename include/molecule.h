@@ -52,7 +52,8 @@ typedef struct {
     float *coordinates;
     unsigned char *connections;
     float *distances; // atomic-pairwise distances
-    float *box;
+    float box[9];
+    unsigned int *bonds_indices; // (iatom, jatom) pairs
     unsigned int nbonds;
     unsigned int ndim;
 } Molecule;
@@ -60,6 +61,10 @@ typedef struct {
 bool is_line_blank(const char *line);
 
 unsigned int get_atomic_index(const char *element);
+
+void init_molecule(Molecule *mol);
+
+Molecule *new_molecule();
 
 Molecule *read_xyz(const char *ifilename);
 
@@ -88,8 +93,6 @@ void print_intramolecular_connectivity(Molecule *mol); // const
 void print_box(Molecule *mol); // const
 
 void allocate_molecule_memory(Molecule *mol);
-
-void allocate_molecule_box(Molecule *mol);
 
 void set_atomic_properties(Molecule *mol, unsigned int iatom);
 
