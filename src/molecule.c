@@ -205,7 +205,7 @@ Molecule *read_xyz(const char *ifilename) {
             atom_coord(mol, iatom), 
             atom_coord(mol, iatom) + 1, 
             atom_coord(mol, iatom) + 2) != 4) {
-            fprintf(stderr, "Error! Cannot read atom %u\n", iatom + 1);
+            fprintf(stderr, "Error! Cannot read atom %u.\n", iatom + 1);
             exit(EXIT_FAILURE);
         }
         set_atomic_properties(mol, iatom);
@@ -321,7 +321,7 @@ Molecule *read_gjf(const char *ifilename) {
     while (fgets(line, BUFSIZ, ifile)) {
         if (is_line_blank(line)) break;
         if (sscanf(line, "%2s%g%g%g", name, coord, coord + 1, coord + 2) != 4) {
-            fprintf(stderr, "Error! Cannot read atom %u\n", iatom + 1);
+            fprintf(stderr, "Error! Cannot read atom %u.\n", iatom + 1);
             exit(EXIT_FAILURE);
         }
         if (strcmp(name, "Tv")) {
@@ -442,7 +442,7 @@ Molecule *read_out(const char *ifilename) {
                 if (strstr(line, "--------")) break;
                 if (sscanf(line, "%*d%d%*d%g%g%g", 
                     &index, coord, coord + 1, coord + 2) != 4) {
-                    fprintf(stderr, "Error! Cannot read atom %u\n", iatom + 1);
+                    fprintf(stderr, "Error! Cannot read atom %u.\n", iatom + 1);
                     exit(EXIT_FAILURE);
                 }
                 if (index != -2) {
@@ -558,19 +558,19 @@ Molecule *read_fch(const char *ifilename) {
         unsigned int index = 0u;
         if (iatom % 6 == 0) {
             if (!fgets(line, BUFSIZ, ifile)) {
-                fprintf(stderr, "Error! Cannot read atom %u\n", iatom + 1);
+                fprintf(stderr, "Error! Cannot read atom %u.\n", iatom + 1);
                 exit(EXIT_FAILURE);
             }
             line_pos = line;
         }
         if (strlen(line_pos) < 12) {
-            fprintf(stderr, "Error! Cannot read atom %u\n", iatom + 1);
+            fprintf(stderr, "Error! Cannot read atom %u.\n", iatom + 1);
             exit(EXIT_FAILURE);
         }
         strncpy(content, line_pos, 12);
         line_pos += 12;
         if (sscanf(content, "%u", &index) != 1 || index > max_atomic_number) {
-            fprintf(stderr, "Error! Cannot read atom %u\n", iatom + 1);
+            fprintf(stderr, "Error! Cannot read atom %u.\n", iatom + 1);
             exit(EXIT_FAILURE);
         }
         strcpy(mol->elements[iatom], elements_list[index]);
@@ -593,25 +593,25 @@ Molecule *read_fch(const char *ifilename) {
         float value;
         if (i % 5 == 0) {
             if (!fgets(line, BUFSIZ, ifile)) {
-                fprintf(stderr, "Error! Cannot read atom %u\n", i / 3 + 1);
+                fprintf(stderr, "Error! Cannot read atom %u.\n", i / 3 + 1);
                 exit(EXIT_FAILURE);
             }
             line_pos = line;
         }
         if (strlen(line_pos) < 16) {
-            fprintf(stderr, "Error! Cannot read atom %u\n", i / 3 + 1);
+            fprintf(stderr, "Error! Cannot read atom %u.\n", i / 3 + 1);
             exit(EXIT_FAILURE);
         }
         strncpy(content, line_pos, 16);
         line_pos += 16;
         if (sscanf(content, "%g", &value) != 1) {
-            fprintf(stderr, "Error! Cannot read atom %u\n", i / 3  + 1);
+            fprintf(stderr, "Error! Cannot read atom %u.\n", i / 3  + 1);
             exit(EXIT_FAILURE);
         }
         mol->coordinates[i] = value;
     }
 
-    if (mol->box) {
+    if (mol->ndim) {
         found_label = false;
         while (fgets(line, BUFSIZ, ifile)) {
             if (!strncmp(line, "Translation vectors", strlen("Translation vectors"))) {

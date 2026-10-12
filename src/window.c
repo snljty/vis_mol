@@ -7,7 +7,7 @@
 #include <stdlib.h>
 
 // 窗口尺寸
-int winWidth = 800, winHeight = 1000;
+int winWidth = 1000, winHeight = 800;
 
 // 化学键半径
 const float STICK_RADIUS = 0.1f;
