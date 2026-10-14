@@ -22,9 +22,7 @@ int main(int argc, char **argv) {
     initScene();
 
     // 回调函数
-    glutDisplayFunc(&display);
-    glutReshapeFunc(&reshape);
-    glutKeyboardFunc(&keyboard);
+    registerCallbacks();
 
     // 进入事件循环（永不返回）
     glutMainLoop();

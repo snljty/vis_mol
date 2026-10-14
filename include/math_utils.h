@@ -23,6 +23,7 @@ void mat4_mul(float *res, const float *a, const float *b);
 void mat4_lmul_inplace(float *m, const float *a);
 void mat4_rmul_inplace(float *m, const float *a);
 void mat4_set_rotation(float *m, const float *axis, float angle);
+void mat4_set_rotation_half_turn(float *m, const float *axis);
 void mat4_set_rotation_by_cos_angle(float *m, const float *axis, float cos_angle);
 void mat4_set_perspective(float *m, float fov, float aspect, float near_, float far_);
 void mat4_set_orthographic(float *m, float left, float right, float bottom, float top, float near_, float far_);
@@ -34,6 +35,9 @@ static void mat4_prepend_translation(float *m, const float *trans);
 static inline void mat4_set_rotation_x(float *m, float angle);
 static inline void mat4_set_rotation_y(float *m, float angle);
 static inline void mat4_set_rotation_z(float *m, float angle);
+static inline void mat4_set_rotation_x_half_turn(float *m);
+static inline void mat4_set_rotation_y_half_turn(float *m);
+static inline void mat4_set_rotation_z_half_turn(float *m);
 static inline void mat4_set_scale(float *m, float sx, float sy, float sz);
 static inline void mat4_copy(float *m, const float *old);
 static inline void mat4_append_scale(float *m, const float *scale);
@@ -186,6 +190,31 @@ static inline void mat4_set_rotation_z(float *m, float angle) {
     mat4_get(m, 0, 1) = -s;
     mat4_get(m, 1, 1) =  c;
 }
+
+static inline void mat4_set_rotation_x_half_turn(float *m) {
+    memset(m, 0, 16 * sizeof(float));
+    mat4_get(m, 0, 0) =  1.f;
+    mat4_get(m, 1, 1) = -1.f;
+    mat4_get(m, 2, 2) = -1.f;
+    mat4_get(m, 3, 3) =  1.f;
+}
+
+static inline void mat4_set_rotation_y_half_turn(float *m) {
+    memset(m, 0, 16 * sizeof(float));
+    mat4_get(m, 0, 0) = -1.f;
+    mat4_get(m, 1, 1) =  1.f;
+    mat4_get(m, 2, 2) = -1.f;
+    mat4_get(m, 3, 3) =  1.f;
+}
+
+static inline void mat4_set_rotation_z_half_turn(float *m) {
+    memset(m, 0, 16 * sizeof(float));
+    mat4_get(m, 0, 0) = -1.f;
+    mat4_get(m, 1, 1) = -1.f;
+    mat4_get(m, 2, 2) =  1.f;
+    mat4_get(m, 3, 3) =  1.f;
+}
+
 
 static inline void mat4_set_scale(float *m, float sx, float sy, float sz) {
     float scale = sx * sy * sz;

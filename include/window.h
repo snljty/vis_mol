@@ -7,27 +7,20 @@
 
 #include "molecule.h"
 
-// 窗口尺寸（全局变量，在 main.c 中定义，其他文件通过 extern 使用，比如window.c）
-extern int winWidth;
-extern int winHeight;
+// 窗口尺寸是全局变量，在 window.c 中定义
 
 // 着色器代码，在shader.h中直接引用
 extern const char vertexShaderSource[];
 extern const char fragmentShaderSource[];
 
-// 全局变量：VAO、索引数量、着色器程序，在 window.c 中定义，其他文件通过 extern 使用
-extern GLuint sphereVAO, cylinderVAO; // handle
-extern int sphereIdxCount, cylinderIdxCount;
-extern GLuint shaderProgram; // handle
+// 全局变量：VAO、索引数量、着色器程序，在 window.c 中定义
 
-// 化学键半径
-extern const float STICK_RADIUS;
+// 化学键半径在 window.c 中定义
 
 // 分子本身
 extern Molecule *mol;
 
-// 是否用两种颜色画化学键
-extern const bool bonds_two_colors;
+// 是否用两种颜色画化学键，当前是透视还是正交，视角相关全局变量，都在 window.c 中定义
 
 // 创建 VAO（包含 VBO 和 EBO），返回 VAO 编号
 GLuint createVAO(float *vertices, int vertexCount,

@@ -489,6 +489,22 @@ void mat4_set_rotation(float *m, const float *axis, float angle) {
     mat4_get(m, 3, 3) = 1.f;
 }
 
+void mat4_set_rotation_half_turn(float *m, const float *axis) {
+    // assume axis is normalized
+    memset(m, 0, 16 * sizeof(float));
+    mat4_get(m, 0, 0) = -1.f + 2.f * axis[0] * axis[0];
+    mat4_get(m, 1, 0) = 2.f * axis[1] * axis[0];
+    mat4_get(m, 2, 0) = 2.f * axis[2] * axis[0];
+    mat4_get(m, 0, 1) = 2.f * axis[0] * axis[1];
+    mat4_get(m, 1, 1) = -1.f + 2.f * axis[1] * axis[1];
+    mat4_get(m, 2, 1) = 2.f * axis[2] * axis[1];
+    mat4_get(m, 0, 2) = 2.f * axis[0] * axis[2];
+    mat4_get(m, 1, 2) = 2.f * axis[1] * axis[2];
+    mat4_get(m, 2, 2) = -1.f + 2.f * axis[2] * axis[2];
+    mat4_get(m, 3, 3) = 1.f;
+}
+
+
 void mat3_lmul_inplace(float *m, const float *a) {
     float temp[9];
     mat3_copy(temp, m);

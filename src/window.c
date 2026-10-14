@@ -15,9 +15,6 @@ const float STICK_RADIUS = 0.1f;
 // 分子
 Molecule *mol = NULL;
 
-// 是否用两种颜色显示化学键
-const bool bonds_two_colors = true;
-
 // gl* 这些函数报错通常不返回错误码，而是设定全局错误标志：
 // GLenum err = glGetError();
 // 每次调用只返回一个错误，如果多个错误，要多次调用取完。
@@ -41,12 +38,78 @@ const bool bonds_two_colors = true;
 // }
 // 环境性错误主要发生在"初始化"阶段，而且通常以"函数返回失败/返回 NULL"的方式暴露，而不是靠 glGetError。
 
+// 交互手感有两种约定
+
+// 约定 A:抓取式 / 场景跟随光标(grab / scene-follow / drag-the-scene)
+// 你把鼠标"按在分子上",拖到哪里,分子就跟到哪里。
+// 本质:固定相机语义,移动的是"世界"的观感(实际是反着动相机)。
+// 这是 VMD、PyMOL、Blender 的默认平移/旋转手感(大家习惯的"抓住物体拽")。
+
+// 约定 B:驱动式 / 相机跟随光标(camera-drive / camera-follow / push-the-camera)
+// 你是在"推相机":往右拖,相机往右走,于是场景往左走。
+// 典型例子:Unity/Unreal 编辑器里某些"轨道相机"、第一人称"鼠标移动镜头"。
+
+// 还有一组更数学的区分,常被问"哪种定义变换":
+
+// (1) 世界坐标对齐 vs 屏幕坐标对齐
+// 你的平移用的是世界坐标轴(中键沿世界 X/Y,右键沿世界 Z)。
+// 有些查看器用屏幕/相机坐标系(沿"屏幕右、屏幕上、屏幕法向"平移)。
+// 两种都对,但手感不同,术语上叫 "world-space controls" vs "screen-space controls"。
+
+// (2) 矩阵组合顺序:左乘(前乘) vs 右乘(后乘)
+// 相机矩阵是 view,累计增量变换是 view_new = D · view(左乘/前乘,世界帧)还是 view_new = view · D(右乘/后乘,相机帧)。
+// 现在的 orbit/pan 改的是 eye/center,本质是重算 view,不直接碰矩阵组合,所以这一层暂时没踩到。
+
+// Trackball / Arcball(轨迹球):一种具体算法,把屏幕二维拖动映射成三维旋转。它通常默认"抓取式"。你要的左右旋转本质就是简化的 trackball。
+// "固定目标旋转" / "绕目标轨道":orbit 的另一个叫法。
+// "相对相机" vs "相对世界":就是上面世界坐标对齐 vs 屏幕坐标对齐。
+
+// 注意要用"固定世界轴"做增量旋转,而不是每次从当前姿态推导转轴。 要保存一个累积旋转矩阵。
+// 否则会遇到万向节锁问题，旋转到某一个角度后视角不稳定，鼠标轻微移动，分子就会乱转。
+// 累积旋转 = 一个矩阵 + 固定轴增量 + 相机固定。既避开了万向节锁,又天然屏幕对齐。用四元数保存累积旋转状态也是可以的，是等价的。
 
 // 全局变量：VAO、索引数量、着色器程序
 // initScene函数设置了它们的值，用来给display函数使用
-GLuint sphereVAO, cylinderVAO; // 球和圆柱VAO的handle编号
-int sphereIdxCount, cylinderIdxCount; // 球和圆柱的顶点个数，geometry.c里面的函数计算他们的值
-GLuint shaderProgram; // 着色器handle编号
+static GLuint sphereVAO, cylinderVAO; // 球和圆柱VAO的handle编号
+static int sphereIdxCount, cylinderIdxCount; // 球和圆柱的顶点个数，geometry.c里面的函数计算他们的值
+static GLuint shaderProgram; // 着色器handle编号
+
+// ==================== 相机控制状态 ====================
+// 是否用两种颜色显示化学键
+static bool bonds_two_colors = true;
+// 用 eye/center/up 维护相机位姿；分子坐标与 model 矩阵完全不动，只改视角。
+static bool use_perspective = false;   // 当前是透视还是正交
+
+// 保存的累积旋转矩阵，为了避免万向节锁问题。和最初始的旋转矩阵。
+static float rot[16];                // 累积的分子旋转矩阵（单位阵初始）
+static float saved_rot[16];          // 双击恢复用
+
+// 规范缩放 = 正交半高（世界单位）。透视的 fov 由它推导，保证两种模式切换连续。
+static float viewSize = 6.0f;
+
+static float eye[3]    = {0.0f, 1.5f, 8.0f};
+static float center[3] = {0.0f, 1.0f, 0.0f};
+static float up[3]     = {0.0f, 1.0f, 0.0f};
+
+// 初始视角存档（双击中键恢复）
+static float saved_eye[3], saved_center[3], saved_up[3];
+static float saved_viewSize;
+static bool saved_use_perspective;
+
+// 拖动状态
+static int drag_button = -1;
+static int last_mouse_x = 0, last_mouse_y = 0;
+
+// 双击检测（毫秒）
+static const long DOUBLE_CLICK_MS = 250;
+static long last_middle_click_ms = -1000;
+
+// 灵敏度
+static const float ROT_SPEED   =  0.01f;   // 每像素弧度
+static const float ROLL_SPEED  =  0.01f;   // 每像素弧度（绕视线方向滚转）
+static const float PAN_SPEED   =  0.02f;   // 每像素世界单位
+static const float ZOOM_FACTOR =  0.9f;    // 每次滚轮 viewSize 乘的系数
+
 
 // 创建 VAO（包含 VBO 和 EBO）
 GLuint createVAO(float *vertices, int vertexCount,
@@ -95,57 +158,132 @@ GLuint createVAO(float *vertices, int vertexCount,
     return VAO;
 }
 
-// 初始化场景（创建几何体、着色器）
-void initScene() {
-    #ifdef USE_HIGH_RESOLUTION
-    int sectors = 32; // 经纬球和圆柱的经向块数
-    int stacks = 32; // 只有经纬球用的到，纬向块数
-    int numSubdivide = 3; // 正二十面体细分球（棱角球）表面细分次数。 
-    #else
-    int sectors = 16;
-    int stacks = 16;
-    int numSubdivide = 2;
-    #endif
-    (void)stacks; // 这个变量其实用不到，我们已经不用经纬球了，但是还是留在这里，这行避免编译器 Warning
+// 把 eye 绕 center 旋转：轴是世界坐标单位向量 axis，angle 弧度
+static void orbit_camera(const float axis[3], float angle) {
+    float m[16];
+    mat4_set_rotation(m, axis, angle);   // 注意 axis 需单位化（世界轴已单位）
+    float d[3], dnew[3];
+    vec3_sub(d, eye, center);            // 眼位相对center
+    dnew[0] = mat4_get(m,0,0)*d[0] + mat4_get(m,0,1)*d[1] + mat4_get(m,0,2)*d[2];
+    dnew[1] = mat4_get(m,1,0)*d[0] + mat4_get(m,1,1)*d[1] + mat4_get(m,1,2)*d[2];
+    dnew[2] = mat4_get(m,2,0)*d[0] + mat4_get(m,2,1)*d[1] + mat4_get(m,2,2)*d[2];
+    vec3_add(eye, center, dnew);
+}
 
-    // numSubdivide = 2 的时候三角形比上面经纬球的 sectors = 16; stacks = 16; 略少，但是更均匀，效果应该差不多。
-    // 如果 sectors 和 stacks 都设高质量的 32，可以 numSubdivide 增加到 3。总之只考虑三角形个数，sectors 和 stacks 翻倍，
-    // 三角形近似变成四倍；numSubdivide 增加 1，三角形个数也变成四倍。
+// 绕视线方向滚动相机：保持 eye/center 不动，只旋转 up 向量
+static void roll_camera(float angle) {
+    float forward[3];
+    vec3_sub(forward, center, eye);
+    vec3_normalize(forward);
 
-    float *sphereVerts, *cylinderVerts;
-    int sphereVertCount, cylinderVertCount;
-    GLuint *sphereIdx, *cylinderIdx;
+    float m[16];
+    mat4_set_rotation(m, forward, angle);
 
-    // 最初版本的，经纬球
-    // generateGeoSphere(sectors, stacks,
-    //                &sphereVerts, &sphereVertCount,
-    //                &sphereIdx, &sphereIdxCount);
-    // 现在版本的，只用棱角球，一定做中点去重，看有没有 Hash 库决定是用散列函数还是排序+二分查找
-    generateIcoSphere(numSubdivide, 
-                   &sphereVerts, &sphereVertCount,
-                   &sphereIdx, &sphereIdxCount);
-    generateCylinder(sectors,
-                     &cylinderVerts, &cylinderVertCount,
-                     &cylinderIdx, &cylinderIdxCount);
+    float unew[3];
+    unew[0] = mat4_get(m,0,0)*up[0] + mat4_get(m,0,1)*up[1] + mat4_get(m,0,2)*up[2];
+    unew[1] = mat4_get(m,1,0)*up[0] + mat4_get(m,1,1)*up[1] + mat4_get(m,1,2)*up[2];
+    unew[2] = mat4_get(m,2,0)*up[0] + mat4_get(m,2,1)*up[1] + mat4_get(m,2,2)*up[2];
+    memcpy(up, unew, 3 * sizeof(float));
+}
 
-    // 赋值给.h声明的两个全局变量。
-    sphereVAO = createVAO(sphereVerts, sphereVertCount, sphereIdx, sphereIdxCount);
-    cylinderVAO = createVAO(cylinderVerts, cylinderVertCount, cylinderIdx, cylinderIdxCount);
+// 把 eye 和 center 一起平移（整个视图平移，不改变眼距 D）
+static void pan_camera(float dx, float dy, float dz) {
+    float temp[3];
+    temp[0] = dx; temp[1] = dy; temp[2] = dz;
+    vec3_add(eye, eye, temp);
+    vec3_add(center, center, temp);
+}
 
-    // 数据已经上传到GPU，可以释放内存了
-    free(sphereVerts); free(sphereIdx);
-    sphereVerts = NULL; sphereIdx = NULL;
-    free(cylinderVerts); free(cylinderIdx);
-    cylinderVerts = NULL; cylinderIdx = NULL;
+// 保存初始视角（供双击恢复）
+static void save_initial_view() {
+    memcpy(saved_eye, eye, 3 * sizeof(float));
+    memcpy(saved_center, center, 3 * sizeof(float));
+    memcpy(saved_up, up, 3 * sizeof(float));
+    saved_viewSize = viewSize;
+    saved_use_perspective = use_perspective;
+    memcpy(saved_rot, rot, 16 * sizeof(float));
+}
 
-    // 编译并链接得到GPU的着色器程序
-    shaderProgram = createShaderProgram(vertexShaderSource, fragmentShaderSource);
+// 恢复初始视角
+static void restore_initial_view() {
+    memcpy(eye, saved_eye, 3 * sizeof(float));
+    memcpy(center, saved_center, 3 * sizeof(float));
+    memcpy(up, saved_up, 3 * sizeof(float));
+    viewSize = saved_viewSize;
+    use_perspective = saved_use_perspective;
+    memcpy(rot, saved_rot, 16 * sizeof(float));
+}
 
-    // 开启深度测试，正确处理遮挡关系
-    glEnable(GL_DEPTH_TEST);
-    // 开启表面剔除
-    glEnable(GL_CULL_FACE); // glDisable来去掉表面剔除
-    // glCullFace(GL_BACK); // 可以没有这行，默认剔除背面，即三角形顶点逆时针顺序时应有的样子。也可以用GL_FRONT剔除正面。
+// 滚轮：统一改规范 viewSize（正交、透视都由此推导投影）
+static void mouse_wheel_func(int button, int direction, int x, int y) {
+    (void)button; (void)x; (void)y;
+    if (direction > 0) {
+        viewSize /= ZOOM_FACTOR;   // 滚上=缩小（你觉得反了，先取这个）
+    } else {
+        viewSize *= ZOOM_FACTOR;
+    }
+    glutPostRedisplay();
+}
+
+// 鼠标按键 + 滚轮回调
+static void mouse_func(int button, int state, int x, int y) {
+    // 滚轮已由 mouse_wheel_func 单独处理，这里不碰 GLUT_WHEEL_*
+
+    if (state == GLUT_DOWN) {
+        // 中键双击检测（左右键双击暂时无视）
+        if (button == GLUT_MIDDLE_BUTTON) {
+            long now = (long)glutGet(GLUT_ELAPSED_TIME);
+            if (now - last_middle_click_ms < DOUBLE_CLICK_MS) {
+                restore_initial_view();
+                drag_button = 0;   // 双击不作为拖动起点
+                last_middle_click_ms = -1000;
+                glutPostRedisplay();
+                return;
+            }
+            last_middle_click_ms = now;
+        }
+        drag_button = button;
+        last_mouse_x = x;
+        last_mouse_y = y;
+    } else {
+        drag_button = -1;
+    }
+}
+
+// 按住拖动回调：左=绕X/Y，中=沿X/Y平移，右=绕Z + 沿Z平移。一律让分子“跟手”（抓分子约定）
+static void motion_func(int x, int y) {
+    if (drag_button < 0) return;
+    int dx = x - last_mouse_x;
+    int dy = y - last_mouse_y;
+    last_mouse_x = x;
+    last_mouse_y = y;
+
+    float r[16];
+
+    switch (drag_button) {
+    case GLUT_LEFT_BUTTON:
+        // 左右=绕世界Y，上下=绕世界X（固定轴→无万向锁）
+        mat4_set_rotation_y(r, -(float)dx * ROT_SPEED);
+        mat4_lmul_inplace(rot, r);                       // rot = R_y * rot
+        mat4_set_rotation_x(r, -(float)dy * ROT_SPEED);
+        mat4_lmul_inplace(rot, r);                       // rot = R_x * rot
+        break;
+    case GLUT_MIDDLE_BUTTON:
+        // 中键=沿屏幕X/Y平移（相机固定→世界=屏幕，直接世界轴即可）
+        pan_camera(-(float)dx * PAN_SPEED,
+                    (float)dy * PAN_SPEED, 0.f);
+        break;
+    case GLUT_RIGHT_BUTTON:
+        // 左右=绕世界Z（视线方向）滚转
+        mat4_set_rotation_z(r, (float)dx * ROLL_SPEED);
+        mat4_lmul_inplace(rot, r);                       // rot = R_z * rot
+        // 上下=沿世界Z平移（挪裁剪面）
+        pan_camera(0.f, 0.f, -(float)dy * PAN_SPEED);
+        break;
+    default:
+        break;
+    }
+    glutPostRedisplay();
 }
 
 // 显示回调（每帧渲染）
@@ -174,41 +312,41 @@ void display() {
 
     // M V P 矩阵上传顺序无所谓，这只是习惯。
 
-    // 投影矩阵
+    // 投影矩阵（由规范 viewSize 推导，正交/透视二选一）
     float projection[16];
     float aspect = (float)winWidth / (float)winHeight;
-    float viewSize = 6.0f;  // 控制可见区域的大小（高度的一半）
-    // viewSize 只跟正交视角有关，越大能看到的范围越大，物体就显得越小
-    float left   = -viewSize * aspect;
-    float right  =  viewSize * aspect;
-    float bottom = -viewSize;
-    float top    =  viewSize;
-    float vfov_degree = 45.0f;
     float near_ = 0.1f;
     float far_ = 100.f;
 
-    // 如果用正交视角
-    mat4_set_orthographic(projection, left, right, bottom, top, near_, far_);
-    // 如果用透视视角
-    // VFOV 为 45°对应的弧度，是图形学常用的"默认垂直视场角"，接近人眼/相机的自然视野，不夸张、不狭窄，看起来舒服，是大多数教程和引擎的默认值。
-    // 想广角就调大，想长焦就调小。
-    // mat4_set_perspective(projection, vfov_degree * (float)M_PI / 180.0f, aspect, near_, far_);
+    if (use_perspective) {
+        // 透视：fov = 2·atan(viewSize / D)，D 为眼距。中心平面大小恒等于 viewSize
+        // VFOV 为 45°对应的弧度，是图形学常用的"默认垂直视场角"，接近人眼/相机的自然视野，不夸张、不狭窄，看起来舒服，是大多数教程和引擎的默认值。
+        // 想广角就调大，想长焦就调小。
+        float d[3];
+        vec3_sub(d, eye, center);
+        float D = vec3_length(d);
+        if (D < 1e-6f) D = 1.0f;   // 防御：避免除以零
+        float fov = 2.f * atanf(viewSize / D);
+        mat4_set_perspective(projection, fov, aspect, near_, far_);
+        // mat4_set_perspective 第二参是弧度，见 math_utils.c
+    } else {
+        // 正交：直接用 viewSize 作为半高
+        float left   = -viewSize * aspect;
+        float right  =  viewSize * aspect;
+        float bottom = -viewSize;
+        float top    =  viewSize;
+        mat4_set_orthographic(projection, left, right, bottom, top, near_, far_);
+    }
 
-    // 上传4×4矩阵，以指针形式。上传一个指针，倒数第二个参数这里用GL_FALSE和GL_TRUE表示是否转置。
-    // glUniformMatrix4fv(glGetUniformLocation(shaderProgram, "projection"), 1, GL_FALSE, projection);
-
-    // 视图矩阵
-    // 眼睛（相机）位置、目标中心位置、“上”方向、视角矩阵
-    float eye[3] = {0.0f, 1.5f, 8.0f};
-    float center[3] = {0.0f, 1.0f, 0.0f};
-    // up 不能跟视线方向共线。第一人称视角里，up 通常跟随人物的"头顶方向"。
-    float up[3] = {0.0f, 1.0f, 0.0f};
+    // 视图矩阵（相机位姿）
     float view[16];
     mat4_set_look_at(view, eye, center, up);
-    // glUniformMatrix4fv(glGetUniformLocation(shaderProgram, "view"), 1, GL_FALSE, view);
+    mat4_rmul_inplace(view, rot);   // 先转分子（rot），再用固定相机看它
 
+    // 合并上传
     float projection_view[16];
     mat4_mul(projection_view, projection, view);
+    // 上传4×4矩阵，以指针形式。上传一个指针，倒数第二个参数这里用GL_FALSE和GL_TRUE表示是否转置。
     // projection 和 view 这里总是一起做，可以算好两者乘积一次性传给 GPU。
     glUniformMatrix4fv(glGetUniformLocation(shaderProgram, "projection_view"), 1, GL_FALSE, projection_view);
 
@@ -558,6 +696,62 @@ int initWindow(int argc, char **argv) {
     return 0;
 }
 
+// 初始化场景（创建几何体、着色器）
+void initScene() {
+    #ifdef USE_HIGH_RESOLUTION
+    int sectors = 32; // 经纬球和圆柱的经向块数
+    int stacks = 32; // 只有经纬球用的到，纬向块数
+    int numSubdivide = 3; // 正二十面体细分球（棱角球）表面细分次数。 
+    #else
+    int sectors = 16;
+    int stacks = 16;
+    int numSubdivide = 2;
+    #endif
+    (void)stacks; // 这个变量其实用不到，我们已经不用经纬球了，但是还是留在这里，这行避免编译器 Warning
+
+    // numSubdivide = 2 的时候三角形比上面经纬球的 sectors = 16; stacks = 16; 略少，但是更均匀，效果应该差不多。
+    // 如果 sectors 和 stacks 都设高质量的 32，可以 numSubdivide 增加到 3。总之只考虑三角形个数，sectors 和 stacks 翻倍，
+    // 三角形近似变成四倍；numSubdivide 增加 1，三角形个数也变成四倍。
+
+    float *sphereVerts, *cylinderVerts;
+    int sphereVertCount, cylinderVertCount;
+    GLuint *sphereIdx, *cylinderIdx;
+
+    // 最初版本的，经纬球
+    // generateGeoSphere(sectors, stacks,
+    //                &sphereVerts, &sphereVertCount,
+    //                &sphereIdx, &sphereIdxCount);
+    // 现在版本的，只用棱角球，一定做中点去重，看有没有 Hash 库决定是用散列函数还是排序+二分查找
+    generateIcoSphere(numSubdivide, 
+                   &sphereVerts, &sphereVertCount,
+                   &sphereIdx, &sphereIdxCount);
+    generateCylinder(sectors,
+                     &cylinderVerts, &cylinderVertCount,
+                     &cylinderIdx, &cylinderIdxCount);
+
+    // 赋值给.h声明的两个全局变量。
+    sphereVAO = createVAO(sphereVerts, sphereVertCount, sphereIdx, sphereIdxCount);
+    cylinderVAO = createVAO(cylinderVerts, cylinderVertCount, cylinderIdx, cylinderIdxCount);
+
+    // 数据已经上传到GPU，可以释放内存了
+    free(sphereVerts); free(sphereIdx);
+    sphereVerts = NULL; sphereIdx = NULL;
+    free(cylinderVerts); free(cylinderIdx);
+    cylinderVerts = NULL; cylinderIdx = NULL;
+
+    // 编译并链接得到GPU的着色器程序
+    shaderProgram = createShaderProgram(vertexShaderSource, fragmentShaderSource);
+
+    // 开启深度测试，正确处理遮挡关系
+    glEnable(GL_DEPTH_TEST);
+    // 开启表面剔除
+    glEnable(GL_CULL_FACE); // glDisable来去掉表面剔除
+    // glCullFace(GL_BACK); // 可以没有这行，默认剔除背面，即三角形顶点逆时针顺序时应有的样子。也可以用GL_FRONT剔除正面。
+
+    mat4_identity(rot);
+    save_initial_view();
+}
+
 // 窗口大小变化回调
 void reshape(int w, int h) {
     // 防止窗口被最小化时候渲染异常和aspect的除以0风险
@@ -573,5 +767,19 @@ void reshape(int w, int h) {
 void keyboard(unsigned char key, int x, int y) {
     (void)x;
     (void)y;
-    if (key == 0x1B) exit(EXIT_SUCCESS); // ESC
+    if (key == 0x1B) exit(EXIT_SUCCESS);   // ESC
+    if (key == 'v') {                      // v 切换正交/透视
+        use_perspective = !use_perspective;
+        glutPostRedisplay();
+    }
+}
+
+// 注册回调
+void registerCallbacks() {
+    glutDisplayFunc(display);
+    glutReshapeFunc(reshape);
+    glutKeyboardFunc(keyboard);
+    glutMouseFunc(mouse_func);
+    glutMotionFunc(motion_func);
+    glutMouseWheelFunc(mouse_wheel_func);
 }
