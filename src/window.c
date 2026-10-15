@@ -82,6 +82,7 @@ static bool use_perspective = false;   // 当前是透视还是正交
 
 // 保存的累积旋转矩阵，为了避免万向节锁问题。和最初始的旋转矩阵。
 static float rot[16];                // 累积的分子旋转矩阵（单位阵初始）
+static float rot_transpose_mat3[9];  // 上面矩阵的左上角部分
 static float saved_rot[16];          // 双击恢复用
 
 // 规范缩放 = 正交半高（世界单位）。透视的 fov 由它推导，保证两种模式切换连续。
@@ -274,7 +275,7 @@ static void motion_func(int x, int y) {
         break;
     case GLUT_RIGHT_BUTTON:
         // 左右=绕世界Z（视线方向）滚转
-        mat4_set_rotation_z(r, (float)dx * ROLL_SPEED);
+        mat4_set_rotation_z(r, -(float)dx * ROLL_SPEED);
         mat4_lmul_inplace(rot, r);                       // rot = R_z * rot
         // 上下=沿世界Z平移（挪裁剪面）
         pan_camera(0.f, 0.f, -(float)dy * PAN_SPEED);
@@ -310,9 +311,12 @@ void display() {
     mat4_set_look_at(view_look, eye, center, up);
     // 光方向固定在“分子自身坐标系”，随 rot 一起转
     float worldLight[3];
-    worldLight[0] = mat4_get(rot, 0, 0) * lightDir[0] + mat4_get(rot, 1, 0) * lightDir[1] + mat4_get(rot, 2, 0) * lightDir[2];
-    worldLight[1] = mat4_get(rot, 0, 1) * lightDir[0] + mat4_get(rot, 1, 1) * lightDir[1] + mat4_get(rot, 2, 1) * lightDir[2];
-    worldLight[2] = mat4_get(rot, 0, 2) * lightDir[0] + mat4_get(rot, 1, 2) * lightDir[1] + mat4_get(rot, 2, 2) * lightDir[2];
+    mat4_topleft_to_mat3(rot_transpose_mat3, rot);
+    mat3_transpose_inplace(rot_transpose_mat3);
+    mat3_mul(worldLight, rot_transpose_mat3, lightDir);
+    // worldLight[0] = mat4_get(rot, 0, 0) * lightDir[0] + mat4_get(rot, 1, 0) * lightDir[1] + mat4_get(rot, 2, 0) * lightDir[2];
+    // worldLight[1] = mat4_get(rot, 0, 1) * lightDir[0] + mat4_get(rot, 1, 1) * lightDir[1] + mat4_get(rot, 2, 1) * lightDir[2];
+    // worldLight[2] = mat4_get(rot, 0, 2) * lightDir[0] + mat4_get(rot, 1, 2) * lightDir[1] + mat4_get(rot, 2, 2) * lightDir[2];
     vec3_normalize(worldLight);
 
     // uniform 是 CPU 传给 GPU 的全局只读变量。着色器对其只读，所有顶点、片元共享，可以每帧更新。
@@ -320,6 +324,18 @@ void display() {
     // 方向光，传的光方向。这部分跟着色器代码绑定，比如如果用点光源，要传光的位置。如果要修改光的类型或者数量（叠加效果），要改着色器代码。
     glUniform3fv(glGetUniformLocation(shaderProgram, "lightDir"), 1, worldLight);
     glUniform3f(glGetUniformLocation(shaderProgram, "lightColor"), 1.0f, 1.0f, 1.0f); // 纯白，这三个数代表光颜色三个分量的强度。
+
+    // 主光（沿用现有 worldLight）
+    glUniform3fv(glGetUniformLocation(shaderProgram, "lightDir"), 1, worldLight);
+
+    // 补光：方向大致与主光相反，照背面
+    float worldLightComp[3];
+    worldLightComp[0] = -worldLight[0];
+    worldLightComp[1] = -worldLight[1];
+    worldLightComp[2] = -worldLight[2];
+    // vec3_normalize(worldLightComp);
+    glUniform3fv(glGetUniformLocation(shaderProgram, "lightDirComp"), 1, worldLightComp);
+
     glUniform3f(glGetUniformLocation(shaderProgram, "ambientColor"), 0.2f, 0.2f, 0.2f); // 环境光，很暗，通常只需要一个
 
     // M V P 矩阵上传顺序无所谓，这只是习惯。

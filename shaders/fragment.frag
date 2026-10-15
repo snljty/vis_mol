@@ -4,6 +4,7 @@ in vec3 Normal; // 输入，来源于顶点着色器插值，世界坐标下的�
 out vec4 FragColor; // 输出，片元最终颜色（RGBA），CPU 端对应你设的 objectColor 等
 // CPU传来的全局变量，要和CPU部分变量名一致
 uniform vec3 lightDir;  // 光的方向
+uniform vec3 lightDirComp;  // 光的方向
 uniform vec3 lightColor; // 光的强度
 uniform vec3 objectColor; // 物体颜色，每个物体不同
 uniform vec3 ambientColor; // 环境光颜色
@@ -18,8 +19,11 @@ void main() {
     // 法线和光方向的点积就是漫反射系数diff。描述表面朝向光的程度，决定“这个表面受光多强”。
     // 但是注意背光面不产生负亮度，所以要取和0.0的较大值。
     float diff = max(dot(norm, lightDirNorm), 0.0);
+    // 背面光，相当于打一个反光板
+    vec3 lightDirCompNorm = normalize(lightDirComp);
+    float diffComp = max(dot(norm, lightDirCompNorm), 0.0);
     // 漫反射 = 漫反射系数 × 光颜色 × 物体颜色。
-    vec3 diffuse = diff * lightColor * objectColor;
+    vec3 diffuse = (diff + 0.3 * diffComp) * lightColor * objectColor;
     // 最终颜色=环境光+漫反射。
     vec3 result = ambient + diffuse;
     // 输出最终颜色，设为完全不透明，alpha=1。

@@ -72,6 +72,8 @@ void mat3_rmul_inplace(float *m, const float *a);
 static inline void mat3_copy(float *m, const float *old);
 static inline void mat3_append_scale(float *m, const float *scale);
 static inline void mat3_append_inverse_scale(float *m, const float *scale);
+static inline void mat3_transpose(float *m, const float *old);
+static inline void mat3_transpose_inplace(float *m);
 
 static inline float vec3_dot(const float *a, const float *b) {
     return a[0] * b[0] + a[1] * b[1] + a[2] * b[2];
@@ -248,6 +250,25 @@ static inline void mat4_append_scale(float *m, const float *scale) {
     mat4_get(m, 0, 2) *= scale[2];
     mat4_get(m, 1, 2) *= scale[2];
     mat4_get(m, 2, 2) *= scale[2];
+}
+
+static inline void mat3_transpose(float *m, const float *old) {
+    mat3_get(m, 0, 0) = mat3_get(old, 0, 0);
+    mat3_get(m, 0, 1) = mat3_get(old, 1, 0);
+    mat3_get(m, 0, 2) = mat3_get(old, 2, 0);
+    mat3_get(m, 1, 0) = mat3_get(old, 0, 1);
+    mat3_get(m, 1, 1) = mat3_get(old, 1, 1);
+    mat3_get(m, 1, 2) = mat3_get(old, 2, 1);
+    mat3_get(m, 2, 0) = mat3_get(old, 0, 2);
+    mat3_get(m, 2, 1) = mat3_get(old, 1, 2);
+    mat3_get(m, 2, 2) = mat3_get(old, 2, 2);
+}
+
+static inline void mat3_transpose_inplace(float *m) {
+    float t;
+    t = mat3_get(m, 0, 1); mat3_get(m, 0, 1) = mat3_get(m, 1, 0); mat3_get(m, 1, 0) = t;
+    t = mat3_get(m, 0, 2); mat3_get(m, 0, 2) = mat3_get(m, 2, 0); mat3_get(m, 2, 0) = t;
+    t = mat3_get(m, 1, 2); mat3_get(m, 1, 2) = mat3_get(m, 2, 1); mat3_get(m, 2, 1) = t;
 }
 
 static inline void mat3_append_scale(float *m, const float *scale) {
