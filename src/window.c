@@ -262,16 +262,15 @@ static void motion_func(int x, int y) {
 
     switch (drag_button) {
     case GLUT_LEFT_BUTTON:
-        // 左右=绕世界Y，上下=绕世界X（固定轴→无万向锁）
+        // 左右=绕世界Y，上下=绕世界X（固定轴→无万向锁，转分子）
         mat4_set_rotation_y(r, -(float)dx * ROT_SPEED);
         mat4_lmul_inplace(rot, r);                       // rot = R_y * rot
         mat4_set_rotation_x(r, -(float)dy * ROT_SPEED);
         mat4_lmul_inplace(rot, r);                       // rot = R_x * rot
         break;
     case GLUT_MIDDLE_BUTTON:
-        // 中键=沿屏幕X/Y平移（相机固定→世界=屏幕，直接世界轴即可）
         pan_camera(-(float)dx * PAN_SPEED,
-                    (float)dy * PAN_SPEED, 0.f);
+                    (float)dy * PAN_SPEED, 0.f);         // 沿X/Y平移
         break;
     case GLUT_RIGHT_BUTTON:
         // 左右=绕世界Z（视线方向）滚转
@@ -300,13 +299,26 @@ void display() {
 
     // 光照参数
     // 把光照参数传给着色器这个 uniform
-    // 方向光方向，下一行归一化
+    // 方向光方向
+    // 相机空间恒定的光方向（始终从屏幕左上方打来）
     float lightDir[3] = {0.5f, 1.0f, 0.3f};
     vec3_normalize(lightDir);
+
+    // 用“不含 rot”的相机矩阵把光方向转回世界，使光钉在屏幕上
+    // view_look = look_at(eye, center, up)，不含 rot（这样光不随分子转）
+    float view_look[16];
+    mat4_set_look_at(view_look, eye, center, up);
+    // 光方向固定在“分子自身坐标系”，随 rot 一起转
+    float worldLight[3];
+    worldLight[0] = mat4_get(rot, 0, 0) * lightDir[0] + mat4_get(rot, 1, 0) * lightDir[1] + mat4_get(rot, 2, 0) * lightDir[2];
+    worldLight[1] = mat4_get(rot, 0, 1) * lightDir[0] + mat4_get(rot, 1, 1) * lightDir[1] + mat4_get(rot, 2, 1) * lightDir[2];
+    worldLight[2] = mat4_get(rot, 0, 2) * lightDir[0] + mat4_get(rot, 1, 2) * lightDir[1] + mat4_get(rot, 2, 2) * lightDir[2];
+    vec3_normalize(worldLight);
+
     // uniform 是 CPU 传给 GPU 的全局只读变量。着色器对其只读，所有顶点、片元共享，可以每帧更新。
     // glUniform3fv 和 glUniform3f 都是传3个float给uniform，区别是3fv传指针(loc, count, ptr)，3f传值(loc, x, y, z)。
     // 方向光，传的光方向。这部分跟着色器代码绑定，比如如果用点光源，要传光的位置。如果要修改光的类型或者数量（叠加效果），要改着色器代码。
-    glUniform3fv(glGetUniformLocation(shaderProgram, "lightDir"), 1, lightDir);
+    glUniform3fv(glGetUniformLocation(shaderProgram, "lightDir"), 1, worldLight);
     glUniform3f(glGetUniformLocation(shaderProgram, "lightColor"), 1.0f, 1.0f, 1.0f); // 纯白，这三个数代表光颜色三个分量的强度。
     glUniform3f(glGetUniformLocation(shaderProgram, "ambientColor"), 0.2f, 0.2f, 0.2f); // 环境光，很暗，通常只需要一个
 
