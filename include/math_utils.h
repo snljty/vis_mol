@@ -41,6 +41,7 @@ static inline void mat4_set_rotation_z_half_turn(float *m);
 static inline void mat4_set_scale(float *m, float sx, float sy, float sz);
 static inline void mat4_copy(float *m, const float *old);
 static inline void mat4_append_scale(float *m, const float *scale);
+static inline void mat4_topleft_transpose_mul_vec3(float *res, const float *m, const float *v);
 
 static inline float vec3_dot(const float *a, const float *b);
 static inline void vec3_cross(float *res, const float *a, const float *b);
@@ -51,6 +52,7 @@ static inline void vec3_scale_inverse(float *res, float s);
 static inline float vec3_length(const float *v);
 static inline void vec3_normalize(float *v);
 static inline void vec3_copy(float *v, const float *old);
+static inline void vec3_opposite(float *v, const float *old);
 float vec3_included_angle_cos(const float *a, const float *b);
 float vec3_included_angle(const float *a, const float *b);
 
@@ -62,6 +64,7 @@ void mat3_add_inplace(float *res, const float *a);
 void mat3_sub(float *res, const float *a, const float *b);
 void mat3_sub_inplace(float *res, const float *a);
 void mat3_mul(float *res, const float *a, const float *b);
+void mat3_mul_vec(float *res, const float *m, const float *v);
 void mat3_scale(float *m, float scale);
 void mat3_scale_inverse(float *m, float scale);
 void vec3_outer(float *res, const float *a, const float *b);
@@ -121,6 +124,12 @@ static inline void vec3_normalize(float *v) {
 
 static inline void vec3_copy(float *v, const float *old) {
     memcpy(v, old, 3 * sizeof(float));
+}
+
+static inline void vec3_opposite(float *v, const float *old) {
+    v[0] = -old[0];
+    v[1] = -old[1];
+    v[2] = -old[2];
 }
 
 
@@ -251,6 +260,13 @@ static inline void mat4_append_scale(float *m, const float *scale) {
     mat4_get(m, 1, 2) *= scale[2];
     mat4_get(m, 2, 2) *= scale[2];
 }
+
+static inline void mat4_topleft_transpose_mul_vec3(float *res, const float *m, const float *v) {
+    res[0] = vec3_dot(m    , v);
+    res[1] = vec3_dot(m + 4, v);
+    res[2] = vec3_dot(m + 8, v);
+}
+
 
 static inline void mat3_transpose(float *m, const float *old) {
     mat3_get(m, 0, 0) = mat3_get(old, 0, 0);

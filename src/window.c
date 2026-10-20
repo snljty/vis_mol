@@ -82,14 +82,13 @@ static bool use_perspective = false;   // 当前是透视还是正交
 
 // 保存的累积旋转矩阵，为了避免万向节锁问题。和最初始的旋转矩阵。
 static float rot[16];                // 累积的分子旋转矩阵（单位阵初始）
-static float rot_transpose_mat3[9];  // 上面矩阵的左上角部分
 static float saved_rot[16];          // 双击恢复用
 
 // 规范缩放 = 正交半高（世界单位）。透视的 fov 由它推导，保证两种模式切换连续。
 static float viewSize = 6.0f;
 
 static float eye[3]    = {0.0f, 1.5f, 8.0f};
-static float center[3] = {0.0f, 1.0f, 0.0f};
+static float center[3] = {0.0f, 0.0f, 0.0f};
 static float up[3]     = {0.0f, 1.0f, 0.0f};
 
 // 初始视角存档（双击中键恢复）
@@ -311,12 +310,8 @@ void display() {
     mat4_set_look_at(view_look, eye, center, up);
     // 光方向固定在“分子自身坐标系”，随 rot 一起转
     float worldLight[3];
-    mat4_topleft_to_mat3(rot_transpose_mat3, rot);
-    mat3_transpose_inplace(rot_transpose_mat3);
-    mat3_mul(worldLight, rot_transpose_mat3, lightDir);
-    // worldLight[0] = mat4_get(rot, 0, 0) * lightDir[0] + mat4_get(rot, 1, 0) * lightDir[1] + mat4_get(rot, 2, 0) * lightDir[2];
-    // worldLight[1] = mat4_get(rot, 0, 1) * lightDir[0] + mat4_get(rot, 1, 1) * lightDir[1] + mat4_get(rot, 2, 1) * lightDir[2];
-    // worldLight[2] = mat4_get(rot, 0, 2) * lightDir[0] + mat4_get(rot, 1, 2) * lightDir[1] + mat4_get(rot, 2, 2) * lightDir[2];
+    // rot 左上角的转置左乘 lightDir 向量
+    mat4_topleft_transpose_mul_vec3(worldLight, rot, lightDir);
     vec3_normalize(worldLight);
 
     // uniform 是 CPU 传给 GPU 的全局只读变量。着色器对其只读，所有顶点、片元共享，可以每帧更新。
@@ -330,9 +325,7 @@ void display() {
 
     // 补光：方向大致与主光相反，照背面
     float worldLightComp[3];
-    worldLightComp[0] = -worldLight[0];
-    worldLightComp[1] = -worldLight[1];
-    worldLightComp[2] = -worldLight[2];
+    vec3_opposite(worldLightComp, worldLight);
     // vec3_normalize(worldLightComp);
     glUniform3fv(glGetUniformLocation(shaderProgram, "lightDirComp"), 1, worldLightComp);
 
@@ -368,8 +361,28 @@ void display() {
 
     // 视图矩阵（相机位姿）
     float view[16];
+    
+    // 分子中心（从坐标算，分子在哪就用哪）
+    float mol_center[3] = {0.f, 0.f, 0.f};
+    for (unsigned int i = 0u; i < mol->natoms; ++i) {
+        mol_center[0] += atom_coord(mol, i)[0];
+        mol_center[1] += atom_coord(mol, i)[1];
+        mol_center[2] += atom_coord(mol, i)[2];
+    }
+    if (mol->natoms > 0u) {
+        mol_center[0] /= (float)(mol->natoms);
+        mol_center[1] /= (float)(mol->natoms);
+        mol_center[2] /= (float)(mol->natoms);
+    }
+
+    // view = look_at @ T(center) @ rot @ T(−center)
     mat4_set_look_at(view, eye, center, up);
-    mat4_rmul_inplace(view, rot);   // 先转分子（rot），再用固定相机看它
+    float T1[16], T2[16], M[16];
+    mat4_set_translation(T1, -mol_center[0], -mol_center[1], -mol_center[2]);
+    mat4_set_translation(T2,  mol_center[0],  mol_center[1],  mol_center[2]);
+    mat4_mul(M, T2, rot);        // M = T(center) · rot
+    mat4_mul(M, M, T1);          // M = T(center) · rot · T(−center)
+    mat4_rmul_inplace(view, M);  // view = look_at · M
 
     // 合并上传
     float projection_view[16];

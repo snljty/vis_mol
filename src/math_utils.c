@@ -588,6 +588,18 @@ void mat3_mul(float *res, const float *a, const float *b) {
         mat3_get(a, 2, 2) * mat3_get(b, 2, 2);
 }
 
+void mat3_mul_vec(float *res, const float *m, const float *v) {
+    res[0] = mat3_get(m, 0, 0) * v[0] \
+           + mat3_get(m, 0, 1) * v[1] \
+           + mat3_get(m, 0, 2) * v[2];
+    res[1] = mat3_get(m, 1, 0) * v[0] \
+           + mat3_get(m, 1, 1) * v[1] \
+           + mat3_get(m, 1, 2) * v[2];
+    res[2] = mat3_get(m, 2, 0) * v[0] \
+           + mat3_get(m, 2, 1) * v[1] \
+           + mat3_get(m, 2, 2) * v[2];
+}
+
 void mat4_set_rotation_xyz(float *m, float alpha, float beta, float gamma) {
     // rotate along z gamma, then y beta, finally x alpha
     float ca = cosf(alpha), cb = cosf(beta), cc = cosf(gamma);
