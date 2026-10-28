@@ -26,6 +26,7 @@
     #define PATH_MAX 4096
 #endif
 #include <string.h>
+#include <stdbool.h>
 
 void get_this_exe_path(char *curr_exe_path);
 

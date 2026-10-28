@@ -6,6 +6,59 @@ const char splitter = '\\';
 const char splitter = '/';
 #endif
 
+static bool is_blank(const char *s) {
+    while (*s != '\0') {
+        if (*s != ' ' && *s != '\t') {
+            return false;
+        }
+        s += 1;
+    }
+    return true;
+}
+
+static void strip_glsl_comments(char *dst, const char *src, int *in_block_comment) {
+    const char *s = src;
+    char *d = dst;
+    int in_string = 0;
+
+    while (*s != '\0') {
+        if (*in_block_comment) {
+            if (s[0] == '*' && s[1] == '/') {
+                *in_block_comment = 0;
+                s += 2;
+            } else {
+                s += 1;
+            }
+        } else if (in_string) {
+            if (*s == '\\' && s[1] != '\0') {
+                *d ++ = *s ++;
+                *d ++ = *s ++;
+            } else {
+                if (*s == '"') in_string = 0;
+                *d ++ = *s ++;
+            }
+        } else {
+            if (*s == '"') {
+                in_string = 1;
+                *d ++ = *s ++;
+            } else if (s[0] == '/' && s[1] == '/') {
+                break;
+            } else if (s[0] == '/' && s[1] == '*') {
+                *in_block_comment = 1;
+                s += 2;
+            } else {
+                *d ++ = *s ++;
+            }
+        }
+    }
+    *d = '\0';
+
+    while (d > dst && (d[-1] == ' ' || d[-1] == '\t')) {
+        d -= 1;
+        *d = '\0';
+    }
+}
+
 void get_this_exe_path(char *curr_exe_path) {
     char *pos = NULL;
 
@@ -40,6 +93,7 @@ void shader_src_to_header(const char *filename) {
     char ifilename[BUFSIZ + 1] = "", ofilename[BUFSIZ + 13 + 1] = "", varname[BUFSIZ + 14 + 1] = "";
     char *pos = NULL;
     char line[BUFSIZ + 1] = "";
+    int in_block_comment = 0;
 
     strcpy(ifilename, filename);
     strcpy(varname, ifilename);
@@ -60,8 +114,14 @@ void shader_src_to_header(const char *filename) {
     while (fgets(line, BUFSIZ, ifile)) {
         size_t line_len = strlen(line);
         if (line_len > 0 && line[line_len - 1] == '\n') line[line_len - 1] = '\0';
+
+        char clean_line[BUFSIZ + 1] = "";
+        strip_glsl_comments(clean_line, line, &in_block_comment);
+
+        if (is_blank(clean_line)) continue;
+
         fprintf(ofile, "\n    \"");
-        const char *s = line;
+        const char *s = clean_line;
         char c;
         while ((c = *s ++) != '\0') {
             if (c == '"') {
