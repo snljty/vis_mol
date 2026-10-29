@@ -87,9 +87,16 @@ static float saved_rot[16];          // 双击恢复用
 // 规范缩放 = 正交半高（世界单位）。透视的 fov 由它推导，保证两种模式切换连续。
 static float viewSize = 6.0f;
 
+// 可调裁剪平面距离（近/远裁剪面默认值）。display 和 keyboard 里用。
+static float clip_near = 0.1f;
+static float clip_far  = 100.f;
+
 static float eye[3]    = {0.0f, 1.5f, 8.0f};
 static float center[3] = {0.0f, 0.0f, 0.0f};
 static float up[3]     = {0.0f, 1.0f, 0.0f};
+
+// 分子几何中心（加载后只算一次，坐标不变）
+static float mol_center[3] = {0.f, 0.f, 0.f};
 
 // 初始视角存档（双击中键恢复）
 static float saved_eye[3], saved_center[3], saved_up[3];
@@ -107,7 +114,7 @@ static long last_middle_click_ms = -1000;
 // 灵敏度
 static const float ROT_SPEED   =  0.01f;   // 每像素弧度
 static const float ROLL_SPEED  =  0.01f;   // 每像素弧度（绕视线方向滚转）
-static const float PAN_SPEED   =  0.02f;   // 每像素世界单位
+static const float PAN_SPEED   =  0.04f;   // 每像素世界单位
 static const float ZOOM_FACTOR =  0.9f;    // 每次滚轮 viewSize 乘的系数
 
 
@@ -186,6 +193,21 @@ static void roll_camera(float angle) {
     memcpy(up, unew, 3 * sizeof(float));
 }
 
+// 计算分子几何中心（只调用一次，分子坐标加载后不变）
+static void compute_mol_center() {
+    mol_center[0] = mol_center[1] = mol_center[2] = 0.f;
+    for (unsigned int i = 0u; i < mol->natoms; ++i) {
+        mol_center[0] += atom_coord(mol, i)[0];
+        mol_center[1] += atom_coord(mol, i)[1];
+        mol_center[2] += atom_coord(mol, i)[2];
+    }
+    if (mol->natoms > 0u) {
+        mol_center[0] /= (float)(mol->natoms);
+        mol_center[1] /= (float)(mol->natoms);
+        mol_center[2] /= (float)(mol->natoms);
+    }
+}
+
 // 把 eye 和 center 一起平移（整个视图平移，不改变眼距 D）
 static void pan_camera(float dx, float dy, float dz) {
     float temp[3];
@@ -216,11 +238,13 @@ static void restore_initial_view() {
 
 // 滚轮：统一改规范 viewSize（正交、透视都由此推导投影）
 static void mouse_wheel_func(int button, int direction, int x, int y) {
-    (void)button; (void)x; (void)y;
+    (void)button;
+    (void)x;
+    (void)y;
     if (direction > 0) {
-        viewSize /= ZOOM_FACTOR;   // 滚上=缩小（你觉得反了，先取这个）
+        viewSize /= ZOOM_FACTOR;   // 滚上=缩小
     } else {
-        viewSize *= ZOOM_FACTOR;
+        viewSize *= ZOOM_FACTOR;   // 滚下=放大
     }
     glutPostRedisplay();
 }
@@ -260,24 +284,42 @@ static void motion_func(int x, int y) {
 
     float r[16];
 
+    // 相机/屏幕基向量（相机固定故恒定）
+    // forward = 屏幕"深处"；right = 屏幕"水平向右"；upv = 屏幕"竖直向上"
+    float forward[3], right[3], upv[3];
+    vec3_sub(forward, center, eye);
+    vec3_normalize(forward);
+    vec3_cross(right, forward, up);
+    vec3_normalize(right);
+    vec3_cross(upv, right, forward);
+
     switch (drag_button) {
     case GLUT_LEFT_BUTTON:
-        // 左右=绕世界Y，上下=绕世界X（固定轴→无万向锁，转分子）
-        mat4_set_rotation_y(r, -(float)dx * ROT_SPEED);
-        mat4_lmul_inplace(rot, r);                       // rot = R_y * rot
-        mat4_set_rotation_x(r, -(float)dy * ROT_SPEED);
-        mat4_lmul_inplace(rot, r);                       // rot = R_x * rot
+        // 视图空间轨道旋转，抓近表面（近侧基准）：前侧跟手
+        // 水平拖→绕屏幕"竖直轴" upv：往右拖(dx>0)→前侧向右
+        mat4_set_rotation(r, upv, (float)dx * ROT_SPEED);
+        mat4_lmul_inplace(rot, r);               // rot = R_upv * rot
+        // 垂直拖→绕屏幕"水平轴" right：要跟手必须取 +dy（不是 -dy）
+        // 因为绕屏幕+right 正向旋转会让前侧向下，往下拖(dy>0)正好要前侧向下
+        mat4_set_rotation(r, right, (float)dy * ROT_SPEED);
+        mat4_lmul_inplace(rot, r);               // rot = R_right * rot
         break;
     case GLUT_MIDDLE_BUTTON:
-        pan_camera(-(float)dx * PAN_SPEED,
-                    (float)dy * PAN_SPEED, 0.f);         // 沿X/Y平移
+        // 屏幕平面内平移（把分子当物体往屏幕上拖）
+        // 视线沿 -right 平移 ⇒ 分子向右移；视线沿 +upv 平移 ⇒ 分子向下移
+        pan_camera(-(float)dx * PAN_SPEED * right[0] + (float)dy * PAN_SPEED * upv[0],
+                   -(float)dx * PAN_SPEED * right[1] + (float)dy * PAN_SPEED * upv[1],
+                   -(float)dx * PAN_SPEED * right[2] + (float)dy * PAN_SPEED * upv[2]);
         break;
     case GLUT_RIGHT_BUTTON:
-        // 左右=绕世界Z（视线方向）滚转
-        mat4_set_rotation_z(r, -(float)dx * ROLL_SPEED);
-        mat4_lmul_inplace(rot, r);                       // rot = R_z * rot
-        // 上下=沿世界Z平移（挪裁剪面）
-        pan_camera(0.f, 0.f, -(float)dy * PAN_SPEED);
+        // 滚转：绕屏幕"深处"轴 forward
+        mat4_set_rotation(r, forward, (float)dx * ROLL_SPEED);
+        mat4_lmul_inplace(rot, r);               // rot = R_forward * rot
+        // 沿屏幕"深处"（forward，正视线的方向）平移近远面。
+        // 不要沿世界 Z：因为 forward 并不与 Z 重合（eye 在 y 有偏移），
+        // 沿 Z 平移会带出垂直屏幕的分量，正交视角下分子会轻微上下动。
+        float dz = -(float)dy * PAN_SPEED;
+        pan_camera(dz * forward[0], dz * forward[1], dz * forward[2]);
         break;
     default:
         break;
@@ -297,37 +339,31 @@ void display() {
     // 激活着色器，接下来用着色器来画所有东西
     glUseProgram(shaderProgram);
 
+    // 近裁平面、远裁平面距离
+    float near_ = clip_near;
+    float far_  = clip_far;
+
     // 光照参数
     // 把光照参数传给着色器这个 uniform
     // 方向光方向
     // 相机空间恒定的光方向（始终从屏幕左上方打来）
-    float lightDir[3] = {0.5f, 1.0f, 0.3f};
+    // headlight：光固定在视图/屏幕空间。相机固定 → 世界恒定方向，指向相机（让正视面受光）
+    float lightDir[3];
+    vec3_sub(lightDir, eye, center);   // eye - center，从分子指向相机
     vec3_normalize(lightDir);
-
-    // 用“不含 rot”的相机矩阵把光方向转回世界，使光钉在屏幕上
-    // view_look = look_at(eye, center, up)，不含 rot（这样光不随分子转）
-    float view_look[16];
-    mat4_set_look_at(view_look, eye, center, up);
-    // 光方向固定在“分子自身坐标系”，随 rot 一起转
-    float worldLight[3];
-    // rot 左上角的转置左乘 lightDir 向量
-    mat4_topleft_transpose_mul_vec3(worldLight, rot, lightDir);
-    vec3_normalize(worldLight);
 
     // uniform 是 CPU 传给 GPU 的全局只读变量。着色器对其只读，所有顶点、片元共享，可以每帧更新。
     // glUniform3fv 和 glUniform3f 都是传3个float给uniform，区别是3fv传指针(loc, count, ptr)，3f传值(loc, x, y, z)。
     // 方向光，传的光方向。这部分跟着色器代码绑定，比如如果用点光源，要传光的位置。如果要修改光的类型或者数量（叠加效果），要改着色器代码。
-    glUniform3fv(glGetUniformLocation(shaderProgram, "lightDir"), 1, worldLight);
     glUniform3f(glGetUniformLocation(shaderProgram, "lightColor"), 1.0f, 1.0f, 1.0f); // 纯白，这三个数代表光颜色三个分量的强度。
 
-    // 主光（沿用现有 worldLight）
-    glUniform3fv(glGetUniformLocation(shaderProgram, "lightDir"), 1, worldLight);
+    // 主光
+    glUniform3fv(glGetUniformLocation(shaderProgram, "lightDir"), 1, lightDir);
 
     // 补光：方向大致与主光相反，照背面
-    float worldLightComp[3];
-    vec3_opposite(worldLightComp, worldLight);
-    // vec3_normalize(worldLightComp);
-    glUniform3fv(glGetUniformLocation(shaderProgram, "lightDirComp"), 1, worldLightComp);
+    float lightDirComp[3];
+    vec3_opposite(lightDirComp, lightDir);
+    glUniform3fv(glGetUniformLocation(shaderProgram, "lightDirComp"), 1, lightDirComp);
 
     glUniform3f(glGetUniformLocation(shaderProgram, "ambientColor"), 0.2f, 0.2f, 0.2f); // 环境光，很暗，通常只需要一个
 
@@ -336,8 +372,6 @@ void display() {
     // 投影矩阵（由规范 viewSize 推导，正交/透视二选一）
     float projection[16];
     float aspect = (float)winWidth / (float)winHeight;
-    float near_ = 0.1f;
-    float far_ = 100.f;
 
     if (use_perspective) {
         // 透视：fov = 2·atan(viewSize / D)，D 为眼距。中心平面大小恒等于 viewSize
@@ -361,19 +395,6 @@ void display() {
 
     // 视图矩阵（相机位姿）
     float view[16];
-    
-    // 分子中心（从坐标算，分子在哪就用哪）
-    float mol_center[3] = {0.f, 0.f, 0.f};
-    for (unsigned int i = 0u; i < mol->natoms; ++i) {
-        mol_center[0] += atom_coord(mol, i)[0];
-        mol_center[1] += atom_coord(mol, i)[1];
-        mol_center[2] += atom_coord(mol, i)[2];
-    }
-    if (mol->natoms > 0u) {
-        mol_center[0] /= (float)(mol->natoms);
-        mol_center[1] /= (float)(mol->natoms);
-        mol_center[2] /= (float)(mol->natoms);
-    }
 
     // view = look_at @ T(center) @ rot @ T(−center)
     mat4_set_look_at(view, eye, center, up);
@@ -429,6 +450,9 @@ void display() {
 
     // model 矩阵和 model3_inv_transpose 矩阵，以及 scale 向量，，每个球/圆柱实例用相同的内存。
     float model[16], model3_inv_transpose[9], scale[3];
+    // 加入分子整体旋转 rot 的 3×3 左上角，用来把旋转算进法线
+    float rot3[9];
+    mat4_topleft_to_mat3(rot3, rot);
 
     // ========== 绘制化学键 ==========
     // 绑定圆柱的 VAO
@@ -499,6 +523,7 @@ void display() {
             // 这里model还不包括S
             mat4_topleft_to_mat3(model3_inv_transpose, model);
             mat3_append_inverse_scale(model3_inv_transpose, scale);
+            mat3_lmul_inplace(model3_inv_transpose, rot3); // 把分子整体旋转算进法线，光跟视角走
             glUniformMatrix3fv(glGetUniformLocation(shaderProgram, "model3_inverse_transpose"), 1, GL_FALSE, model3_inv_transpose);
             // 缩放到正常尺寸，最后再用
             mat4_append_scale(model, scale);
@@ -552,6 +577,7 @@ void display() {
             // 这里model还不包括S
             mat4_topleft_to_mat3(model3_inv_transpose, model);
             mat3_append_inverse_scale(model3_inv_transpose, scale);
+            mat3_lmul_inplace(model3_inv_transpose, rot3); // 把分子整体旋转算进法线，光跟视角走
             glUniformMatrix3fv(glGetUniformLocation(shaderProgram, "model3_inverse_transpose"), 1, GL_FALSE, model3_inv_transpose);
             // 缩放到正常尺寸，最后再用
             mat4_append_scale(model, scale);
@@ -611,6 +637,7 @@ void display() {
             // 这里model还不包括S
             mat4_topleft_to_mat3(model3_inv_transpose, model);
             mat3_append_inverse_scale(model3_inv_transpose, scale);
+            mat3_lmul_inplace(model3_inv_transpose, rot3); // 把分子整体旋转算进法线，光跟视角走
             glUniformMatrix3fv(glGetUniformLocation(shaderProgram, "model3_inverse_transpose"), 1, GL_FALSE, model3_inv_transpose);
             // 缩放到正常尺寸，最后再用
             mat4_append_scale(model, scale);
@@ -643,6 +670,7 @@ void display() {
         mat3_identity(model3_inv_transpose);
         scale[0] = scale[1] = scale[2] = mol->atomic_covalence_radius[iatom] / 2.f;
         mat3_append_inverse_scale(model3_inv_transpose, scale);
+        mat3_lmul_inplace(model3_inv_transpose, rot3); // 把分子整体旋转算进法线，光跟视角走
         glUniformMatrix3fv(glGetUniformLocation(shaderProgram, "model3_inverse_transpose"), 1, GL_FALSE, model3_inv_transpose);
         mat4_append_scale(model, scale);
         glUniformMatrix4fv(glGetUniformLocation(shaderProgram, "model"), 1, GL_FALSE, model);
@@ -790,6 +818,7 @@ void initScene() {
     // glCullFace(GL_BACK); // 可以没有这行，默认剔除背面，即三角形顶点逆时针顺序时应有的样子。也可以用GL_FRONT剔除正面。
 
     mat4_identity(rot);
+    compute_mol_center();     // 分子中心只算一次
     save_initial_view();
 }
 
@@ -808,10 +837,33 @@ void reshape(int w, int h) {
 void keyboard(unsigned char key, int x, int y) {
     (void)x;
     (void)y;
-    if (key == 0x1B) exit(EXIT_SUCCESS);   // ESC
-    if (key == 'v') {                      // v 切换正交/透视
+    switch (key) {
+    case 0x1B: exit(EXIT_SUCCESS); break;  // ESC
+    case 'v': // v 切换正交/透视
         use_perspective = !use_perspective;
         glutPostRedisplay();
+        break;
+    case '[': // 近裁剪面拉近相机（切得更少，露出更多前部）
+        clip_near -= 0.05f;
+        if (clip_near < 0.01f) clip_near = 0.01f;
+        glutPostRedisplay();
+        break;
+    case ']': // 近裁剪面推远（切入分子，看内部）
+        clip_near += 0.05f;
+        if (clip_near > clip_far - 0.5f) clip_near = clip_far - 0.5f;
+        glutPostRedisplay();
+        break;
+    case '{': // 远裁剪面拉近
+        clip_far -= 5.f;
+        if (clip_far < clip_near + 0.5f) clip_far = clip_near + 0.5f;
+        glutPostRedisplay();
+        break;
+    case '}': // 远裁剪面推远
+        clip_far += 5.f;
+        glutPostRedisplay();
+        break;
+    default:
+        break;
     }
 }
 
