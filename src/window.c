@@ -116,6 +116,7 @@ static const float ROT_SPEED   =  0.01f;   // 每像素弧度
 static const float ROLL_SPEED  =  0.01f;   // 每像素弧度（绕视线方向滚转）
 static const float PAN_SPEED   =  0.04f;   // 每像素世界单位
 static const float ZOOM_FACTOR =  0.9f;    // 每次滚轮 viewSize 乘的系数
+static const float CLIP_STEP   =  1.2f;    // 裁剪平面乘性步长（相对调整，和当前量级成比例）
 
 
 // 创建 VAO（包含 VBO 和 EBO）
@@ -843,23 +844,23 @@ void keyboard(unsigned char key, int x, int y) {
         use_perspective = !use_perspective;
         glutPostRedisplay();
         break;
-    case '[': // 近裁剪面拉近相机（切得更少，露出更多前部）
-        clip_near -= 0.05f;
+    case '[': // 近裁剪面朝相机靠近（相除，切得更少）
+        clip_near /= CLIP_STEP;
         if (clip_near < 0.01f) clip_near = 0.01f;
         glutPostRedisplay();
         break;
-    case ']': // 近裁剪面推远（切入分子，看内部）
-        clip_near += 0.05f;
+    case ']': // 近裁剪面推远（相乘，切入分子看内部）
+        clip_near *= CLIP_STEP;
         if (clip_near > clip_far - 0.5f) clip_near = clip_far - 0.5f;
         glutPostRedisplay();
         break;
-    case '{': // 远裁剪面拉近
-        clip_far -= 5.f;
+    case '{': // 远裁剪面拉近（相除）
+        clip_far /= CLIP_STEP;
         if (clip_far < clip_near + 0.5f) clip_far = clip_near + 0.5f;
         glutPostRedisplay();
         break;
-    case '}': // 远裁剪面推远
-        clip_far += 5.f;
+    case '}': // 远裁剪面推远（相乘）
+        clip_far *= CLIP_STEP;
         glutPostRedisplay();
         break;
     default:
