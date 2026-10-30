@@ -91,7 +91,8 @@ static float viewSize = 6.0f;
 static float clip_near = 0.1f;
 static float clip_far  = 100.f;
 
-static float eye[3]    = {0.0f, 1.5f, 8.0f};
+// 也有人喜欢一个初始的经典"俯视 3/4 视角"，让分子看起来更立体、更有"球感"。这时候可以把eye的y设成1.5f左右。
+static float eye[3]    = {0.0f, 0.0f, 8.0f};
 static float center[3] = {0.0f, 0.0f, 0.0f};
 static float up[3]     = {0.0f, 1.0f, 0.0f};
 
@@ -319,7 +320,7 @@ static void motion_func(int x, int y) {
         // 沿屏幕"深处"（forward，正视线的方向）平移近远面。
         // 不要沿世界 Z：因为 forward 并不与 Z 重合（eye 在 y 有偏移），
         // 沿 Z 平移会带出垂直屏幕的分量，正交视角下分子会轻微上下动。
-        float dz = -(float)dy * PAN_SPEED;
+        float dz = (float)dy * PAN_SPEED;
         pan_camera(dz * forward[0], dz * forward[1], dz * forward[2]);
         break;
     default:
@@ -820,6 +821,13 @@ void initScene() {
 
     mat4_identity(rot);
     compute_mol_center();     // 分子中心只算一次
+
+    // 让相机一开始就对准分子几何中心（而非世界原点），
+    // 这样几何中心偏离原点的分子打开时也居中显示。坐标本身不动，只改视角。
+    memcpy(center, mol_center, 3 * sizeof(float));
+    eye[0] += center[0];
+    eye[1] += center[1];
+    eye[2] += center[2];
     save_initial_view();
 }
 
