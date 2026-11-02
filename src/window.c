@@ -92,6 +92,7 @@ static float clip_near = 0.1f;
 static float clip_far  = 100.f;
 
 // 也有人喜欢一个初始的经典"俯视 3/4 视角"，让分子看起来更立体、更有"球感"。这时候可以把eye的y设成1.5f左右。
+// 相机，目标中心位置、视角的“上”
 static float eye[3]    = {0.0f, 0.0f, 8.0f};
 static float center[3] = {0.0f, 0.0f, 0.0f};
 static float up[3]     = {0.0f, 1.0f, 0.0f};
@@ -99,10 +100,14 @@ static float up[3]     = {0.0f, 1.0f, 0.0f};
 // 分子几何中心（加载后只算一次，坐标不变）
 static float mol_center[3] = {0.f, 0.f, 0.f};
 
-// 初始视角存档（双击中键恢复）
+// 初始视角存档（双击中键恢复
 static float saved_eye[3], saved_center[3], saved_up[3];
 static float saved_viewSize;
 static bool saved_use_perspective;
+
+// 裁剪平面距离存档 (near/far)
+static float saved_clip_near;
+static float saved_clip_far;
 
 // 拖动状态
 static int drag_button = -1;
@@ -225,6 +230,8 @@ static void save_initial_view() {
     memcpy(saved_up, up, 3 * sizeof(float));
     saved_viewSize = viewSize;
     saved_use_perspective = use_perspective;
+    saved_clip_near = clip_near;
+    saved_clip_far  = clip_far;
     memcpy(saved_rot, rot, 16 * sizeof(float));
 }
 
@@ -235,6 +242,8 @@ static void restore_initial_view() {
     memcpy(up, saved_up, 3 * sizeof(float));
     viewSize = saved_viewSize;
     use_perspective = saved_use_perspective;
+    clip_near = saved_clip_near;
+    clip_far  = saved_clip_far;
     memcpy(rot, saved_rot, 16 * sizeof(float));
 }
 
@@ -703,6 +712,10 @@ int initWindow(int argc, char **argv) {
 
     // 全局变量 mol
     mol = read_molecule(ifilename);
+    if (!mol) {
+        fprintf(stderr, "Error! Cannot read molecule.\n");
+        exit(EXIT_FAILURE);
+    }
 
     get_intramolecular_connectivity(mol);
 
@@ -734,7 +747,7 @@ int initWindow(int argc, char **argv) {
 
     // 加载 OpenGL 函数（必须在创建窗口之后，需要OpenGL上下文）
     if (!gladLoadGL()) {
-        printf("Failed to initialize GLAD\n");
+        fprintf(stderr, "Failed to initialize GLAD\n");
         return -1;
     }
 
@@ -770,13 +783,13 @@ int initWindow(int argc, char **argv) {
 // 初始化场景（创建几何体、着色器）
 void initScene() {
     #ifdef USE_HIGH_RESOLUTION
-    int sectors = 32; // 经纬球和圆柱的经向块数
-    int stacks = 32; // 只有经纬球用的到，纬向块数
-    int numSubdivide = 3; // 正二十面体细分球（棱角球）表面细分次数。 
+    const int sectors = 32; // 经纬球和圆柱的经向块数
+    const int stacks = 32; // 只有经纬球用的到，纬向块数
+    const int numSubdivide = 3; // 正二十面体细分球（棱角球）表面细分次数。 
     #else
-    int sectors = 16;
-    int stacks = 16;
-    int numSubdivide = 2;
+    const int sectors = 16;
+    const int stacks = 16;
+    const int numSubdivide = 2;
     #endif
     (void)stacks; // 这个变量其实用不到，我们已经不用经纬球了，但是还是留在这里，这行避免编译器 Warning
 
