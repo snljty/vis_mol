@@ -46,9 +46,12 @@ static inline void mat4_topleft_transpose_mul_vec3(float *res, const float *m, c
 static inline float vec3_dot(const float *a, const float *b);
 static inline void vec3_cross(float *res, const float *a, const float *b);
 static inline void vec3_add(float *res, const float *a, const float *b);
+static inline void vec3_add_inplace(float *a, const float *b);
 static inline void vec3_sub(float *res, const float *a, const float *b);
+static inline void vec3_sub_inplace(float *a, const float *b);
 static inline void vec3_scale(float *res, float s);
 static inline void vec3_scale_inverse(float *res, float s);
+static inline float vec3_squared_length(const float *v);
 static inline float vec3_length(const float *v);
 static inline void vec3_normalize(float *v);
 static inline void vec3_copy(float *v, const float *old);
@@ -94,10 +97,22 @@ static inline void vec3_add(float *res, const float *a, const float *b) {
     res[2] = a[2] + b[2];
 }
 
+static inline void vec3_add_inplace(float *a, const float *b) {
+    a[0] += b[0];
+    a[1] += b[1];
+    a[2] += b[2];
+}
+
 static inline void vec3_sub(float *res, const float *a, const float *b) {
     res[0] = a[0] - b[0];
     res[1] = a[1] - b[1];
     res[2] = a[2] - b[2];
+}
+
+static inline void vec3_sub_inplace(float *a, const float *b) {
+    a[0] -= b[0];
+    a[1] -= b[1];
+    a[2] -= b[2];
 }
 
 static inline void vec3_scale(float *res, float s) {
@@ -113,8 +128,12 @@ static inline void vec3_scale_inverse(float *res, float s) {
     res[2] /= s;
 }
 
+static inline float vec3_squared_length(const float *v) {
+    return vec3_dot(v, v);
+}
+
 static inline float vec3_length(const float *v) {
-    return sqrtf(vec3_dot(v, v));
+    return sqrtf(vec3_squared_length(v));
 }
 
 static inline void vec3_normalize(float *v) {

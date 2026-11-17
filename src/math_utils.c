@@ -51,11 +51,17 @@ void mat4_set_perspective(float *m, float fov, float aspect, float near_, float 
     // 它们实际指的 z = -near 平面和 z = -far 平面，near 和 far 都得是正的，否则平面看不见。而且要求 near < far。
     // 只有 z = -far 和 z = -near 之间的内容能被看到。
     // 由于通过深度缓冲判断谁在前面，如果深度范围太大，很近的两个物体可能被判断成相同深度值，分不清谁在前后，产生深度冲突。因此只有near和far之间能被看到。
-    // fov 是垂直场视角 field of view，单位弧度，决定能看多宽。
+    // fov 是（垂直）场视角 field of view，单位弧度，决定能看多宽。
     // fov 越大，视野越广，物体越小（广角镜头）；fov 越小，视野越窄，物体越大（长焦镜头）
     // 从而 y 方向，距离视觉原点距离为d处，视锥半高度为 d*tan(fov/2)
     // NDC的y方向[-1, 1]范围的半高度是1，对应的距离d就应该是1/tan(fov/2)，我们定义这个是焦距f。
     // aspect 是宽高比，窗口宽度➗️窗口高度
+
+    // OpenGL 的透视投影是针孔相机（pinhole）：所有光线都过同一个点（eye），投到投影平面上。任何深度都清晰，没有景深、没有"对焦"。
+    // 所以严格说：不存在"在哪个平面成焦"。
+    // 在相机内参里，焦距通常用像素表示：
+    // f_pix = (图像高度像素数 / 2) / tan(fov / 2)
+    // 只有当将来要做景深（DoF）时，才会真正引入薄透镜模型，那时"焦平面、光圈、弥散圆（CoC）"才有意义；
 
     // 要通过透视除法ndc = clip / clip_w实现除以-z，即近大远小。我们让clip_w = -z，从而clip_{x,y,z}=(-z)ndc_{x,y,z}
     // 所以假设矩阵最后一行是(a, b, c, d)，要让其作用在(x, y, z, 1)上得到(clip_x, clip_y, clip_z, clip_w)，其中clip_w=-z
@@ -87,12 +93,10 @@ void mat4_set_perspective(float *m, float fov, float aspect, float near_, float 
     mat4_get(m, 3, 2) = -1.0f;
     mat4_get(m, 2, 3) = (2.0f * far_ * near_) / (near_ - far_);
 
-    /*
-    sx
-       sy
-          sz tz
-          -1 0
-    */
+    // sx
+    //    sy
+    //       sz tz
+    //       -1 0
     // sy = f
     // sx = f / aspect
     // sz = (far + near) / (near - far)
@@ -114,12 +118,10 @@ void mat4_set_orthographic(float *m, float left, float right, float bottom, floa
     mat4_get(m, 1, 3) = -(top + bottom) / (top - bottom);
     mat4_get(m, 2, 3) =  (far_ + near_) / (near_ - far_);
     mat4_get(m, 3, 3) = 1.0f;
-    /*
-    sx       tx
-       sy    ty
-          sz tz
-             1
-    */
+    // sx       tx
+    //    sy    ty
+    //       sz tz
+    //          1
 }
 
 // 世界空间坐标到观察（相机）空间坐标用
@@ -151,12 +153,10 @@ void mat4_set_look_at(float *m, const float *eye, const float *center, const flo
     // cam_z = (p - eye) · (-f) = p·(-f) + eye·f
     // 此时相机的 x y z 分别是世界的 s u -f，旋转矩阵作用于(s, u, -f)为单位阵。
 
-    /*
-         s.T -s·eye
-         u.T -u·eye
-        -f.T  f·eye
-         0.T   1
-    */
+        //  s.T -s·eye
+        //  u.T -u·eye
+        // -f.T  f·eye
+        //  0.T   1
     memset(m, 0, 16 * sizeof(float));
     mat4_get(m, 0, 0) =  s[0];
     mat4_get(m, 1, 0) =  u[0];
