@@ -703,6 +703,10 @@ void destroy_molecule(Molecule *mol) {
             my_free(mol->atomic_covalence_radius);
             mol->atomic_covalence_radius = NULL;
         }
+        if (mol->atomic_weights) {
+            my_free(mol->atomic_weights);
+            mol->atomic_weights = NULL;
+        }
         if (mol->elements) {
             my_free(mol->elements);
             mol->elements = NULL;
@@ -849,6 +853,8 @@ void allocate_molecule_memory(Molecule *mol) {
     mol->atomic_indices = (unsigned int *)my_malloc(mol->natoms * sizeof(unsigned int));
     if (mol->atomic_covalence_radius) my_free(mol->atomic_covalence_radius);
     mol->atomic_covalence_radius = (float *)my_malloc(mol->natoms * sizeof(float));
+    if (mol->atomic_weights) my_free(mol->atomic_weights);
+    mol->atomic_weights = (float *)my_malloc(mol->natoms * sizeof(float));
     if (mol->coordinates) my_free(mol->coordinates);
     mol->coordinates = (float *)my_malloc(3 * mol->natoms * sizeof(float));
     if (mol->connections) my_free(mol->connections);
@@ -870,6 +876,7 @@ void set_atomic_properties(Molecule *mol, unsigned int iatom) {
         fprintf(stderr, "Warning: unrecognizable element: \"%s\", regarding as dummy atom.\n", mol->elements[iatom]);
     }
     mol->atomic_covalence_radius[iatom] = covalence_radius_list[mol->atomic_indices[iatom]];
+    mol->atomic_weights[iatom] = standard_atomic_weight_list[mol->atomic_indices[iatom]];
 }
 
 void nullify_molecule(Molecule *mol) {

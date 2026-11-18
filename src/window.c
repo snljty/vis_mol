@@ -69,7 +69,7 @@ Molecule *mol = NULL;
 // 累积旋转 = 一个矩阵 + 固定轴增量 + 相机固定。既避开了万向节锁,又天然屏幕对齐。用四元数保存累积旋转状态也是可以的，是等价的。
 
 // 分子坐标永远不变，变的只是视角/视觉效果。
-// 分子载入后会计算分子的几何中心和包围分子的最小球半径，然后初始视图让几何中心出现在屏幕正中心，并且让整个分子都能被屏幕显示下。
+// 分子载入后会计算分子的质心和包围分子的最小球半径，然后初始视图让质心出现在屏幕正中心，并且让整个分子都能被屏幕显示下。
 // 然后所有的旋转都是基于屏幕坐标系来的，通过保存累积旋转矩阵来实现。
 // 光线始终是跟着视角走，保证分子从什么角度观察都不会改变光照效果。
 // 平移速度是相对于屏幕像素单位的，这样保证不管分子是显得很大还是很小，视角移动速度都是合理的。
@@ -119,7 +119,7 @@ static float eye[3]    = {0.0f, 0.0f, 8.0f};
 static float center[3] = {0.0f, 0.0f, 0.0f};
 static float up[3]     = {0.0f, 1.0f, 0.0f};
 
-// 分子几何中心（加载后只算一次，坐标不变）
+// 分子质心（加载后只算一次，坐标不变）
 static float mol_center[3] = {0.f, 0.f, 0.f};
 
 // 分子包围球半径，加载后算一次
@@ -199,16 +199,24 @@ GLuint createVAO(float *vertices, int vertexCount,
     return VAO;
 }
 
-// 计算分子几何中心（只调用一次，分子坐标加载后不变）
+// 计算分子质心（只调用一次，分子坐标加载后不变）
 static void compute_mol_center() {
     memset(mol_center, 0, 3 * sizeof(float));
+    if (mol->natoms == 0) return;
+    float mass_weighted_coord[3];
+    float tot_mass = 0.f;
+    float current_mass;
     for (unsigned int i = 0u; i < mol->natoms; ++ i) {
-        vec3_add(mol_center, mol_center, atom_coord(mol, i));
+        current_mass = mol->atomic_weights[i];
+        vec3_copy(mass_weighted_coord, atom_coord(mol, i));
+        vec3_scale(mass_weighted_coord, current_mass);
+        vec3_add_inplace(mol_center, mass_weighted_coord);
+        tot_mass += current_mass;
     }
-    if (mol->natoms > 0u) vec3_scale_inverse(mol_center, (float)mol->natoms);
+    vec3_scale_inverse(mol_center, tot_mass);
 }
 
-// 计算分子的包围球半径（到几何中心的最大距离；只算一次）
+// 计算分子的包围球半径（到质心的最大距离；只算一次）
 static float compute_mol_radius() {
     if (mol->natoms == 1) return 1.0f;
     float max_r2 = 0.f;
@@ -465,7 +473,7 @@ void display() {
     // 视图矩阵（相机位姿）
     float view[16];
 
-    // 先把几何中心平移到坐标原点，转完了再平移回去，这样有种让分子绕着自身轴转的感觉。
+    // 先把质心平移到坐标原点，转完了再平移回去，这样有种让分子绕着自身轴转的感觉。
     // view = look_at @ T(center) @ rot @ T(−center)
     mat4_set_look_at(view, eye, center, up);
     float T1[16], T2[16], M[16];
@@ -891,8 +899,8 @@ void initScene() {
     glEnable(GL_CULL_FACE); // glDisable来去掉表面剔除
     // glCullFace(GL_BACK); // 可以没有这行，默认剔除背面，即三角形顶点逆时针顺序时应有的样子。也可以用GL_FRONT剔除正面。
 
-    // 让相机一开始就对准分子几何中心（而非世界原点），
-    // 这样几何中心偏离原点的分子打开时也居中显示。坐标本身不动，只改视角。
+    // 让相机一开始就对准分子质心（而非世界原点），
+    // 这样质心偏离原点的分子打开时也居中显示。坐标本身不动，只改视角。
     mat4_identity(rot);       // 初始的累积旋转矩阵为单位阵
     compute_mol_center();     // 分子中心只算一次
 
@@ -908,7 +916,7 @@ void initScene() {
     float fov0 = 45.0f * (float)M_PI / 180.0f;
     float D0 = viewSize / tanf(fov0 * 0.5f);
 
-    // 相机对准分子几何中心，沿 +Z 后退 D0（坐标本身不动，只改视角）
+    // 相机对准分子质心，沿 +Z 后退 D0（坐标本身不动，只改视角）
     vec3_copy(center, mol_center);
     vec3_copy(eye, center);
     eye[2] += D0;

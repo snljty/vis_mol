@@ -49,6 +49,7 @@ typedef struct {
     element_name *elements;
     unsigned int *atomic_indices;
     float *atomic_covalence_radius;
+    float *atomic_weights;
     float *coordinates;
     unsigned char *connections;
     float *distances; // atomic-pairwise distances
