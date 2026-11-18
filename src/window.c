@@ -291,7 +291,7 @@ static void mouse_func(int button, int state, int x, int y) {
     if (state == GLUT_DOWN) {
         // 中键双击检测（左右键双击暂时无视）
         if (button == GLUT_MIDDLE_BUTTON) {
-            // GLUT_ELAPSED_TIME 是
+            // GLUT_ELAPSED_TIME 是程序启动到现在时间，单位毫秒。
             long now = (long)glutGet(GLUT_ELAPSED_TIME);
             if (now - last_middle_click_ms < DOUBLE_CLICK_MS) {
                 restore_initial_view();
@@ -412,10 +412,13 @@ void display() {
     // 把光照参数传给着色器这个 uniform
     // 方向光方向
     // 相机空间恒定的光方向（始终从屏幕左上方打来）
+    // 之前版本：
     // headlight：光固定在视图/屏幕空间。相机固定 → 世界恒定方向，指向相机（让正视面受光）
+    // 由于人的认知习惯，最强光线永远是从上方而非下方来的（日光），如果反过来就会产生物体里外面反转的错觉，所以稍微抬高方向光。
     float lightDir[3];
     vec3_sub(lightDir, eye, center);   // eye - center，从分子指向相机
-    lightDir[1] += 0.6f;               // 抬高：让光来自斜上方
+    vec3_normalize(lightDir);
+    lightDir[1] += 0.3f;               // 抬高：让光来自斜上方
     vec3_normalize(lightDir);
 
     // uniform 是 CPU 传给 GPU 的全局只读变量。着色器对其只读，所有顶点、片元共享，可以每帧更新。
@@ -964,8 +967,8 @@ void keyboard(unsigned char key, int x, int y) {
         break;
     case '}': // 远裁剪面偏移推远
         clip_far_offset += clip_step;
-            if (clip_far_offset - clip_near_offset > 10.0f * mol_radius)
-        clip_far_offset = clip_near_offset + 10.0f * mol_radius;
+        float max_clip_far_offset = clip_near_offset + 10.0f * mol_radius;
+        if (clip_far_offset > max_clip_far_offset) clip_far_offset = max_clip_far_offset;
         glutPostRedisplay();
         break;
     default:
