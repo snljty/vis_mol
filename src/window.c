@@ -364,9 +364,22 @@ static void motion_func(int x, int y) {
         mat4_lmul_inplace(rot, r);               // rot = R_forward * rot
         // 沿屏幕"深处"（forward，正视线的方向）平移近远面。对正交效果没有影响。
         float depth_pan = (float)dy * pan_step;
-        vec3_copy(pan, forward);
-        vec3_scale(pan, depth_pan);
-        pan_camera(pan);
+        // dolly：带安全下限，避免相机推进/穿过分子
+        float cand_eye[3];
+        vec3_copy(cand_eye, forward);
+        vec3_scale(cand_eye, depth_pan);
+        vec3_add_inplace(cand_eye, eye);
+        float dcm_c[3];
+        vec3_sub(dcm_c, cand_eye, mol_center);
+        float Dc = vec3_length(dcm_c);
+        // 最小允许距离：比动态裁剪的 margin 再留一点余量
+        float min_D = 1.2f * (1.5f * mol_radius);
+        if (Dc >= min_D) {        
+            vec3_copy(pan, forward);
+            vec3_scale(pan, depth_pan);
+            pan_camera(pan);
+        }
+        // 否则忽略这次推进（已经太近）
         break;
     default:
         return;
@@ -394,6 +407,7 @@ void display() {
     // headlight：光固定在视图/屏幕空间。相机固定 → 世界恒定方向，指向相机（让正视面受光）
     float lightDir[3];
     vec3_sub(lightDir, eye, center);   // eye - center，从分子指向相机
+    lightDir[1] += 0.6f;               // 抬高：让光来自斜上方
     vec3_normalize(lightDir);
 
     // uniform 是 CPU 传给 GPU 的全局只读变量。着色器对其只读，所有顶点、片元共享，可以每帧更新。
