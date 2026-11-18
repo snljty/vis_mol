@@ -12,10 +12,14 @@ else()
     message(FATAL_ERROR "OpenGL not found.")
 endif()
 
+# set(FreeGLUT_LIBS FreeGLUT::freeglut)
+# 默认静态链接，只需发布可执行文件即可。如果用上面的就是动态链接，要带上FreeGLUT的动态链接库才能运行。
+set(FreeGLUT_LIBS FreeGLUT::freeglut_static)
+
 # ========== 查找 FreeGLUT ==========
 find_package(FreeGLUT CONFIG REQUIRED)
 if(FreeGLUT_FOUND)
-    message(STATUS "FreeGLUT found: FreeGLUT::freeglut")
+    message(STATUS "FreeGLUT found: ${FreeGLUT_LIBS}")
 else()
     message(FATAL_ERROR
         "FreeGLUT not found. Set CMAKE_PREFIX_PATH to the FreeGLUT installation directory.\n"
@@ -100,7 +104,7 @@ target_include_directories(${PROJECT_NAME} PRIVATE
 )
 
 # 链接库
-target_link_libraries(${PROJECT_NAME} PRIVATE ${PLATFORM_LIBS} FreeGLUT::freeglut GLAD)
+target_link_libraries(${PROJECT_NAME} PRIVATE ${PLATFORM_LIBS} ${FreeGLUT_LIBS} GLAD)
 
 # 安装规则：只安装 lollipop，不安装 embed_shaders
 install(TARGETS ${PROJECT_NAME} RUNTIME DESTINATION bin)
