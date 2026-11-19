@@ -65,7 +65,7 @@ unsigned int get_atomic_index(const char *element);
 
 void init_molecule(Molecule *mol);
 
-Molecule *new_molecule();
+Molecule *new_molecule(void);
 
 Molecule *read_xyz(const char *ifilename);
 

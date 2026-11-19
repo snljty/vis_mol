@@ -8,7 +8,7 @@
 
 // ==================== 着色器编译与链接 ====================
 // 编译顶点和片元着色器
-GLuint compileShader(GLenum type, const char *source) {
+GLuint compile_shader(GLenum type, const char *source) {
     GLuint shader = glCreateShader(type);
     // 第一个参数代表是顶点着色器还是片元着色器。
     // 第二个参数代表字符串数组中的元素个数。
@@ -23,12 +23,12 @@ GLuint compileShader(GLenum type, const char *source) {
     // 应该还有其他很多可用的参数
     glGetShaderiv(shader, GL_COMPILE_STATUS, &success);
     if (!success) {
-        int logLen;
-        glGetShaderiv(shader, GL_INFO_LOG_LENGTH, &logLen);
-        if (logLen) {
-            char infoLog[logLen];
-            glGetShaderInfoLog(shader, logLen, NULL, infoLog);
-            fprintf(stderr, "ERROR::SHADER::COMPILATION_FAILED\n%s\n", infoLog);
+        int log_len;
+        glGetShaderiv(shader, GL_INFO_LOG_LENGTH, &log_len);
+        if (log_len) {
+            char info_log[log_len];
+            glGetShaderInfoLog(shader, log_len, NULL, info_log);
+            fprintf(stderr, "ERROR::SHADER::COMPILATION_FAILED\n%s\n", info_log);
         } else {
             fprintf(stderr, "ERROR::SHADER::COMPILATION_FAILED\n");
         }
@@ -38,9 +38,9 @@ GLuint compileShader(GLenum type, const char *source) {
 }
 
 // 调用上面的函数编译每段着色器代码，然后链接到一起
-GLuint createShaderProgram(const char *vertexSource, const char *fragmentSource) {
-    GLuint vs = compileShader(GL_VERTEX_SHADER, vertexSource);
-    GLuint fs = compileShader(GL_FRAGMENT_SHADER, fragmentSource);
+GLuint create_shader_program(const char *vertex_source, const char *fragment_shader_source) {
+    GLuint vs = compile_shader(GL_VERTEX_SHADER, vertex_source);
+    GLuint fs = compile_shader(GL_FRAGMENT_SHADER, fragment_shader_source);
     GLuint program = glCreateProgram();
     glAttachShader(program, vs);
     glAttachShader(program, fs);
@@ -50,12 +50,12 @@ GLuint createShaderProgram(const char *vertexSource, const char *fragmentSource)
     // 参数类似glGetShaderiv
     glGetProgramiv(program, GL_LINK_STATUS, &success);
     if (!success) {
-        int logLen;
-        glGetProgramiv(program, GL_INFO_LOG_LENGTH, &logLen);
-        if (logLen) {
-            char infoLog[logLen];
-            glGetProgramInfoLog(program, logLen, NULL, infoLog);
-            fprintf(stderr, "ERROR::PROGRAM::LINKING_FAILED\n%s\n", infoLog);
+        int log_len;
+        glGetProgramiv(program, GL_INFO_LOG_LENGTH, &log_len);
+        if (log_len) {
+            char info_log[log_len];
+            glGetProgramInfoLog(program, log_len, NULL, info_log);
+            fprintf(stderr, "ERROR::PROGRAM::LINKING_FAILED\n%s\n", info_log);
         } else {
             fprintf(stderr, "ERROR::PROGRAM::LINKING_FAILED\n");
         }

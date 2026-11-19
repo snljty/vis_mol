@@ -98,7 +98,7 @@ void shader_src_to_header(const char *filename) {
     strcpy(ifilename, filename);
     strcpy(varname, ifilename);
     if ((pos = strrchr(varname, '.'))) *pos = '\0';
-    strcat(varname, "ShaderSource");
+    strcat(varname, "_shader_source");
     sprintf(ofilename, "..%cinclude%c%s.h", splitter, splitter, ifilename);
 
     FILE *ifile = fopen(ifilename, "rb");

@@ -13,20 +13,21 @@
 
 int main(int argc, char **argv) {
     // 必须先调用这个函数，而且其内部调用的函数顺序也有关系，见window.c
-    if (initWindow(argc, argv) != 0) {
+    if (init_window(argc, argv) != 0) {
         fprintf(stderr, "%s\n", "Failed to initialize OpenGL functions.");
         exit(EXIT_FAILURE);
     }
 
     // 创建几何体、着色器
-    initScene();
+    init_scene();
 
-    // 回调函数
-    registerCallbacks();
+    // 注册回调函数
+    register_callbacks();
 
     // 进入事件循环（永不返回）
     glutMainLoop();
 
+    // 这两行实际永远执行不到
     destroy_molecule(mol);
     mol = NULL;
 

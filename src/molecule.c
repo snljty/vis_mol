@@ -6,7 +6,7 @@ bool is_line_blank(const char *line) {
     if (!line) return true;
     char c;
     while ((c = *line ++)) {
-        if (!isspace(c)) return false;
+        if (!isspace((unsigned char)c)) return false;
     }
     return true;
 }
@@ -83,6 +83,7 @@ void init_molecule(Molecule *mol) {
     mol->elements = NULL;
     mol->atomic_indices = NULL;
     mol->atomic_covalence_radius = NULL;
+    mol->atomic_weights = NULL;
     mol->coordinates = NULL;
     mol->connections = NULL;
     mol->distances = NULL;
@@ -92,7 +93,7 @@ void init_molecule(Molecule *mol) {
     mol->ndim = 0u;
 }
 
-Molecule *new_molecule() {
+Molecule *new_molecule(void) {
     Molecule *mol = (Molecule *)my_malloc(sizeof(Molecule));
     if (!mol) {
         fprintf(stderr, "Error! Cannot allocate memory.\n");
@@ -279,6 +280,7 @@ Molecule *read_gjf(const char *ifilename) {
         char name[3];
         if (sscanf(line, "%2s", name) != 1) {
             fprintf(stderr, "Error! Cannot read element of atom %u.\n", mol->natoms);
+            exit(EXIT_FAILURE);
         }
         if (strcmp(name, "Tv")) ++ mol->natoms;
     }
@@ -513,7 +515,7 @@ Molecule *read_fch(const char *ifilename) {
     } else {
         char *line_pos = mol->title + strlen(mol->title) - 1;
         if (*line_pos == '\n') *line_pos -- = '\0';
-        while (*line_pos == ' ' && line_pos - mol->title >= 0) {
+        while (line_pos - mol->title >= 0 && *line_pos == ' ') {
             *line_pos -- = '\0';
         }
     }
@@ -663,12 +665,12 @@ Molecule *read_fch(const char *ifilename) {
     }
 
     // dscal(mol->natoms * 3, Angstrom_per_Bohr, mol->coordinates, 1);
-    // if (mol->box) dscal(9, Angstrom_per_Bohr, mol->box, 1);
+    // if (mol->ndim) dscal(9, Angstrom_per_Bohr, mol->box, 1);
 
     for (unsigned int i = 0u; i < mol->natoms * 3; ++ i) {
         mol->coordinates[i] *= Angstrom_per_Bohr;
     }
-    if (mol->box) {
+    if (mol->ndim) {
         for (unsigned int i = 0u; i < 9u; ++ i) {
             mol->box[i] *= Angstrom_per_Bohr;
         }
@@ -737,7 +739,7 @@ void get_intramolecular_connectivity(Molecule *mol) {
 
     // maybe calculating atomic_pair_distances and atomic_covalence_radius by SIMD and optimized LAPACK+BLAS is a better idea.
     for (unsigned int iatom = 0u; iatom < mol->natoms; ++ iatom) {
-        *atom_distance(mol, iatom, iatom) = (unsigned char)0u;
+        *atom_distance(mol, iatom, iatom) = 0.f;
         for (unsigned int jatom = iatom + 1; jatom < mol->natoms; ++ jatom) {
             float v1 = mol->atomic_covalence_radius[iatom] + mol->atomic_covalence_radius[jatom];
             atomic_covalence_radius_sum[iatom * mol->natoms + jatom] = v1;
@@ -745,9 +747,10 @@ void get_intramolecular_connectivity(Molecule *mol) {
             float dy = atom_coord(mol, iatom)[1] - atom_coord(mol, jatom)[1];
             float dz = atom_coord(mol, iatom)[2] - atom_coord(mol, jatom)[2];
             float v2 = sqrtf(dx * dx + dy * dy + dz * dz);;
-            mol->distances[iatom * mol->natoms + jatom] = v2;
+            *atom_distance(mol, iatom, jatom) = \
+            *atom_distance(mol, jatom, iatom) = v2;
             if (v2 <= v1 * scale_tol) {
-                *atom_connection(mol, iatom, jatom) = (unsigned char)1u;
+                *atom_connection(mol, iatom, jatom) = \
                 *atom_connection(mol, jatom, iatom) = (unsigned char)1u;
                 ++ mol->nbonds;
             }
@@ -780,17 +783,18 @@ void get_intramolecular_connectivity(Molecule *mol) {
     mol->nbonds = 0u;
     
     for (unsigned int iatom = 0u; iatom < mol->natoms; ++ iatom) {
-        *atom_distance(mol, iatom, iatom) = (unsigned char)0u;
+        *atom_distance(mol, iatom, iatom) = 0.f;
         for (unsigned int jatom = iatom + 1; jatom < mol->natoms; ++ jatom) {
             float v1 = mol->atomic_covalence_radius[iatom] + mol->atomic_covalence_radius[jatom];
             float dx = atom_coord(mol, iatom)[0] - atom_coord(mol, jatom)[0];
             float dy = atom_coord(mol, iatom)[1] - atom_coord(mol, jatom)[1];
             float dz = atom_coord(mol, iatom)[2] - atom_coord(mol, jatom)[2];
             float v2 = sqrtf(dx * dx + dy * dy + dz * dz);
-            *atom_distance(mol, iatom, jatom) = v2;
+            *atom_distance(mol, iatom, jatom) = \
+            *atom_distance(mol, jatom, iatom) = v2;
 
             if (v2 <= v1 * scale_tol) {
-                *atom_connection(mol, iatom, jatom) = (unsigned char)1u;
+                *atom_connection(mol, iatom, jatom) = \
                 *atom_connection(mol, jatom, iatom) = (unsigned char)1u;
                 ++ mol->nbonds;
             }
@@ -835,7 +839,7 @@ void print_intramolecular_connectivity(Molecule *mol) {
 }
 
 void print_box(Molecule *mol) {
-    if (mol->box) {
+    if (mol->ndim) {
         for (unsigned int ibox = 0u; ibox < 3u; ++ ibox) {
             for (unsigned int jbox = 0u; jbox < 3u; ++ jbox) {
                 printf("    %13.10f", mol->box[ibox * 3 + jbox]);

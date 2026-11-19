@@ -168,7 +168,7 @@ const float covalence_radius_list[] = {
 // the data was obtained from https://physics.nist.gov/cgi-bin/Compositions/stand_alone.pl?ele=&ascii=ascii2&isotype=all
 // For radioactive elements, the mass corresponds to longest-living isotope
 // Unit is Da, or simply be regarded as relative atomic mass (dimensionless)
-const const float standard_atomic_weight_list[] = {0.f, 
+const float standard_atomic_weight_list[] = {0.f, 
       1.0079407541f,   4.0026019321f,   6.9400366029f,   9.0121830650f,  10.8110280464f,
      12.0107358967f,  14.0067032114f,  15.9994049243f,  18.9984031627f,  20.1800463805f,
      22.9897692820f,  24.3050516198f,  26.9815385300f,  28.0854987057f,  30.9737619984f,

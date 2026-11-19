@@ -10,8 +10,8 @@
 // 窗口尺寸是全局变量，在 window.c 中定义
 
 // 着色器代码，在shader.h中直接引用
-extern const char vertexShaderSource[];
-extern const char fragmentShaderSource[];
+extern const char vertex_shader_source[];
+extern const char fragment_shader_source[];
 
 // 全局变量：VAO、索引数量、着色器程序，在 window.c 中定义
 
@@ -23,14 +23,14 @@ extern Molecule *mol;
 // 是否用两种颜色画化学键，当前是透视还是正交，视角相关全局变量，都在 window.c 中定义
 
 // 创建 VAO（包含 VBO 和 EBO），返回 VAO 编号
-GLuint createVAO(float *vertices, int vertexCount,
-                       GLuint *indices, int indexCount);
+GLuint create_VAO(float *vertices, int vertex_count,
+                       GLuint *indices, int index_count);
 
 // 初始化场景（创建几何体、着色器）
-void initScene();
+void init_scene();
 
 // 初始化窗口并返回是否成功（0成功，-1失败）
-int initWindow(int argc, char **argv);
+int init_window(int argc, char **argv);
 
 // 显示回调（每帧渲染）
 void display();
@@ -42,6 +42,6 @@ void reshape(int w, int h);
 void keyboard(unsigned char key, int x, int y);
 
 // 注册回调（由 main 调用）
-void registerCallbacks(void);
+void register_callbacks(void);
 
 #endif

@@ -3,11 +3,12 @@
 #include "geometry.h"
 #include "shader.h"
 #include "const.h"
+#include "align_alloc.h"
 // #include <GL/freeglut.h>
 #include <stdlib.h>
 
 // 窗口尺寸
-int winWidth = 1000, winHeight = 800;
+int win_width = 1000, win_height = 800;
 
 // 化学键半径
 const float STICK_RADIUS = 0.1f;
@@ -52,9 +53,9 @@ Molecule *mol = NULL;
 // 还有一组更数学的区分,常被问"哪种定义变换":
 
 // (1) 世界坐标对齐 vs 屏幕坐标对齐
-// 你的平移用的是世界坐标轴(中键沿世界 X/Y,右键沿世界 Z)。
-// 有些查看器用屏幕/相机坐标系(沿"屏幕右、屏幕上、屏幕法向"平移)。
-// 两种都对,但手感不同,术语上叫 "world-space controls" vs "screen-space controls"。
+// 这里使用屏幕/相机坐标系(沿"屏幕右、屏幕上、屏幕法向"平移)。
+// 也有些平移用的是世界坐标轴。
+// 两种都对,但手感不同,术语上叫 "screen-space controls" vs "world-space controls"。
 
 // (2) 矩阵组合顺序:左乘(前乘) vs 右乘(后乘)
 // 相机矩阵是 view,累计增量变换是 view_new = D · view(左乘/前乘,世界帧)还是 view_new = view · D(右乘/后乘,相机帧)。
@@ -77,8 +78,8 @@ Molecule *mol = NULL;
 // 目前裁剪平面是动态设置的，保证分子不会被裁剪。但是如果要手动裁剪分子，可以用键盘[]{}分别把近/远裁剪平面相对自动设置的动态值，
 // 做额外的拉近/推远偏移。
 // 键盘 v 切换正交和透视视角。
-// 鼠标滚轮负责通过修改 viewSize 来实现让图像放大/缩小，透视视角的 fov 由 viewSize 确定，相当于改变了焦距。分子各部分相对大小比例不变。
-// 滚轮上半部分向前是推远的感觉（缩小），向后是拉近的感觉（放大），但是实际只是改了 viewSize。
+// 鼠标滚轮负责通过修改 view_size 来实现让图像放大/缩小，透视视角的 fov 由 view_size 确定，相当于改变了焦距。分子各部分相对大小比例不变。
+// 滚轮上半部分向前是推远的感觉（缩小），向后是拉近的感觉（放大），但是实际只是改了 view_size。
 // 滚轮方向可以理解成就是手指往哪边移动，就是把分子看起来往哪个方向移动的“伪透视”感觉。
 // 鼠标右键按住上下移动是把分子沿屏幕 z 轴（视线）方向平移（dolly），这对正交视角看上去无效，因为连裁剪平面都是动态移动的。
 // 对透视视角，改变的是相机到分子的距离 Dcam，fov不变，越远越接近正交，越近近大远小越偏明显，透视关系会改变，远近处大小比例不再固定。
@@ -90,10 +91,20 @@ Molecule *mol = NULL;
 // 按 ESC 键退出程序。
 
 // 全局变量：VAO、索引数量、着色器程序
-// initScene函数设置了它们的值，用来给display函数使用
-static GLuint sphereVAO, cylinderVAO; // 球和圆柱VAO的handle编号
-static int sphereIdxCount, cylinderIdxCount; // 球和圆柱的顶点个数，geometry.c里面的函数计算他们的值
-static GLuint shaderProgram; // 着色器handle编号
+// init_scene函数设置了它们的值，用来给display函数使用
+static GLuint sphere_VAO, cylinder_VAO; // 球和圆柱VAO的handle编号
+static int sphere_idx_count, cylinder_idx_count; // 球和圆柱的顶点个数，geometry.c里面的函数计算他们的值
+static GLuint shader_program; // 着色器handle编号
+
+// 获取着色器中全局变量编号
+static GLint light_color_location;
+static GLint light_dir_location;
+static GLint light_dir_comp_location;
+static GLint ambient_color_location;
+static GLint projection_view_location;
+static GLint model3_inverse_transpose_location;
+static GLint model_location;
+static GLint object_color_location;
 
 // ==================== 相机控制状态 ====================
 // 是否用两种颜色显示化学键
@@ -106,8 +117,8 @@ static float rot[16];                // 累积的分子旋转矩阵（单位阵�
 static float saved_rot[16];          // 双击恢复用
 
 // 规范缩放 = 正交半高（世界单位）。透视的 fov 由它推导，保证两种模式切换连续。
-// 这里只是随便设一个初值，实际上第一个有意义的值是 initScene 函数中，通过分子尺寸计算出来的。
-static float viewSize = 6.0f;
+// 这里只是随便设一个初值，实际上第一个有意义的值是 init_scene 函数中，通过分子尺寸计算出来的。
+static float view_size = 6.0f;
 
 // 可调裁剪平面相对动态基准的裁剪面偏移（0 = 正好包住分子）（近/远裁剪面默认值）。
 static float clip_near_offset = 0.0f;
@@ -127,7 +138,7 @@ static float mol_radius = 1.0f;
 
 // 初始视角存档（双击中键恢复
 static float saved_eye[3], saved_center[3], saved_up[3];
-static float saved_viewSize;
+static float saved_view_size;
 static bool saved_use_perspective;
 
 // 裁剪平面距离偏移存档 (near/far 相对动态基准)
@@ -149,15 +160,15 @@ static long last_middle_click_ms = -250 - 1;
 // 灵敏度
 static const float ROT_SPEED   =  0.01f;   // 每像素弧度（x/y旋转）
 static const float ROLL_SPEED  =  0.01f;   // 每像素弧度（绕视线方向滚转）
-static const float ZOOM_FACTOR =  0.9f;    // 每次滚轮 viewSize 乘的系数
+static const float ZOOM_FACTOR =  0.9f;    // 每次滚轮 view_size 乘的系数
 static const float PAN_SPEED   =  2.0f;    // 每像素世界单位（平移）
 
 // 显示的原子球半径是原子共价半径多少倍
 static const float ATOMIC_RADIUS_DISPLAY_SCALE = 0.5f;
 
 // 创建 VAO（包含 VBO 和 EBO）
-GLuint createVAO(float *vertices, int vertexCount,
-                       GLuint *indices, int indexCount) {
+GLuint create_VAO(float *vertices, int vertex_count,
+                       GLuint *indices, int index_count) {
     GLuint VAO, VBO, EBO;
     // 申请一个 OpenGL 资源编号
     // VBO 存放顶点信息（位置、法线...），EBO 存放片元对应的顶点序号，VAO 告诉 OpenGL 如何解释 VBO 的数据
@@ -178,12 +189,12 @@ GLuint createVAO(float *vertices, int vertexCount,
 
     // 上传顶点数据到 VBO
     glBindBuffer(GL_ARRAY_BUFFER, VBO);
-    glBufferData(GL_ARRAY_BUFFER, vertexCount * 6 * sizeof(float),
+    glBufferData(GL_ARRAY_BUFFER, vertex_count * 6 * sizeof(float),
                  vertices, GL_STATIC_DRAW);
 
     // 上传索引数据到 EBO
     glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, EBO);
-    glBufferData(GL_ELEMENT_ARRAY_BUFFER, indexCount * sizeof(GLuint),
+    glBufferData(GL_ELEMENT_ARRAY_BUFFER, index_count * sizeof(GLuint),
                  indices, GL_STATIC_DRAW);
 
     // GL_FALSE：这里指不归一化，原样传给着色器
@@ -221,7 +232,7 @@ static void compute_mol_center() {
 
 // 计算分子的包围球半径（到质心的最大距离，要考虑到原子球也有半径；只算一次）
 static float compute_mol_radius() {
-    if (mol->natoms == 1) return 1.0f;
+    if (mol->natoms == 0) return 1.0f;
     float max_r = 0.f;
     float delta[3];
     float r;
@@ -230,8 +241,8 @@ static float compute_mol_radius() {
         r = vec3_length(delta) + mol->atomic_covalence_radius[i] * ATOMIC_RADIUS_DISPLAY_SCALE;
         if (r > max_r) max_r = r;
     }
-    if (r < 1E-6f) r = 1.0f; // 退化时的兜底
-    return r;
+    if (max_r < 1E-6f) max_r = 1.0f; // 退化时的兜底
+    return max_r;
 }
 
 // 之前有static void orbit_camera(const float *axis, float angle);和static void roll_camera(float angle);函数，
@@ -249,7 +260,7 @@ static void save_initial_view() {
     vec3_copy(saved_eye, eye);
     vec3_copy(saved_center, center);
     vec3_copy(saved_up, up);
-    saved_viewSize = viewSize;
+    saved_view_size = view_size;
     saved_use_perspective = use_perspective;
     saved_clip_near_offset = clip_near_offset;
     saved_clip_far_offset  = clip_far_offset;
@@ -261,14 +272,14 @@ static void restore_initial_view() {
     vec3_copy(eye, saved_eye);
     vec3_copy(center, saved_center);
     vec3_copy(up, saved_up);
-    viewSize = saved_viewSize;
+    view_size = saved_view_size;
     use_perspective = saved_use_perspective;
     clip_near_offset = saved_clip_near_offset;
     clip_far_offset  = saved_clip_far_offset;
     mat4_copy(rot, saved_rot);
 }
 
-// 滚轮：统一改规范 viewSize（正交、透视都由此推导投影）
+// 滚轮：统一改规范 view_size（正交、透视都由此推导投影）
 static void mouse_wheel_func(int wheel, int direction, int x, int y) {
     (void)wheel; // 滚轮编号，大多数鼠标只有1个滚轮，则这个参数一定是0。
     // x 和 y 是此时鼠标指针坐标
@@ -277,9 +288,9 @@ static void mouse_wheel_func(int wheel, int direction, int x, int y) {
     // direction 是+1代表向上滚（远离用户），-1代表向下滚（靠近用户）。
     if (direction == 0) return;
     if (direction > 0) {
-        viewSize /= ZOOM_FACTOR;   // 滚上=缩小
+        view_size /= ZOOM_FACTOR;   // 滚上=缩小
     } else {
-        viewSize *= ZOOM_FACTOR;   // 滚下=放大
+        view_size *= ZOOM_FACTOR;   // 滚下=放大
     }
     // 通知 GLUT "窗口内容过时了，下次空闲时请重新调用一次显示回调（display）重绘"。
     // 窗口默认不是"每帧都自动重画"的。
@@ -327,11 +338,11 @@ static void motion_func(int x, int y) {
 
     float r[16];
 
-    // 每像素对应的世界单位：把“整个视野高度 = 2*viewSize”摊到 winHeight 个像素上。
+    // 每像素对应的世界单位：把“整个视野高度 = 2*view_size”摊到 win_height 个像素上。
     // 这样平移速度与分子大小、缩放、窗口尺寸都自洽，永远“跟手”。
-    // 正交和透视（中心平面大小恒为 viewSize）都适用。
+    // 正交和透视（中心平面大小恒为 view_size）都适用。
     // pan 这个词来自 panorama，电影行业 pan the camera 代表水平摇镜头。这里指平移。
-    float pan_step = PAN_SPEED * viewSize / (float)winHeight;
+    float pan_step = PAN_SPEED * view_size / (float)win_height;
 
     // 相机/屏幕基向量（相机固定故恒定）
     // forward = 屏幕"深处"（eye 看向 center）；right = 屏幕"水平向右"；upv = 屏幕"竖直向上"
@@ -409,7 +420,7 @@ void display() {
     glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
 
     // 激活着色器，接下来用着色器来画所有东西
-    glUseProgram(shaderProgram);
+    glUseProgram(shader_program);
 
     // 光照参数
     // 把光照参数传给着色器这个 uniform
@@ -427,23 +438,23 @@ void display() {
     // uniform 是 CPU 传给 GPU 的全局只读变量。着色器对其只读，所有顶点、片元共享，可以每帧更新。
     // glUniform3fv 和 glUniform3f 都是传3个float给uniform，区别是3fv传指针(loc, count, ptr)，3f传值(loc, x, y, z)。
     // 方向光，传的光方向。这部分跟着色器代码绑定，比如如果用点光源，要传光的位置。如果要修改光的类型或者数量（叠加效果），要改着色器代码。
-    glUniform3f(glGetUniformLocation(shaderProgram, "lightColor"), 1.0f, 1.0f, 1.0f); // 纯白，这三个数代表光颜色三个分量的强度。
+    glUniform3f(light_color_location, 1.0f, 1.0f, 1.0f); // 纯白，这三个数代表光颜色三个分量的强度。
 
     // 主光
-    glUniform3fv(glGetUniformLocation(shaderProgram, "lightDir"), 1, lightDir);
+    glUniform3fv(light_dir_location, 1, lightDir);
 
     // 补光：方向大致与主光相反，照背面
     float lightDirComp[3];
     vec3_opposite(lightDirComp, lightDir);
-    glUniform3fv(glGetUniformLocation(shaderProgram, "lightDirComp"), 1, lightDirComp);
+    glUniform3fv(light_dir_comp_location, 1, lightDirComp);
 
-    glUniform3f(glGetUniformLocation(shaderProgram, "ambientColor"), 0.2f, 0.2f, 0.2f); // 环境光，很暗，通常只需要一个
+    glUniform3f(ambient_color_location, 0.2f, 0.2f, 0.2f); // 环境光，很暗，通常只需要一个
 
     // M V P 矩阵上传顺序无所谓，这只是习惯。
 
-    // 投影矩阵（由规范 viewSize 推导，正交/透视二选一）
+    // 投影矩阵（由规范 view_size 推导，正交/透视二选一）
     float projection[16];
-    float aspect = (float)winWidth / (float)winHeight;
+    float aspect = (float)win_width / (float)win_height;
 
     // 动态裁剪面：始终把分子包在 near/far 之间，Z 平移不会再剪掉分子
     float dcm[3]; // 分子中心指向相机
@@ -456,23 +467,23 @@ void display() {
     float far_  = fmaxf(near_ + 0.001f, Dcam + margin + clip_far_offset); // far 是动态调节，只要 clip_far_offset 不太离谱，不太用考虑上溢问题。
 
     if (use_perspective) {
-        // 透视：fov = 2·atan(viewSize / D)，D 为眼距。中心平面大小恒等于 viewSize
+        // 透视：fov = 2·atan(view_size / D)，D 为眼距。中心平面大小恒等于 view_size
         // 之前版本 VFOV 为 45°对应的弧度，是图形学常用的"默认垂直视场角"，接近人眼/相机的自然视野，不夸张、不狭窄，看起来舒服，是大多数教程和引擎的默认值。
-        // 但是现在 fov 基于 viewSize 和 D 推导，viewSize 由滚轮控制，已经唯一确定了，所以不设定固定值。
+        // 但是现在 fov 基于 view_size 和 D 推导，view_size 由滚轮控制，已经唯一确定了，所以不设定固定值。
         // 想广角就调大 fov，想长焦就调小 fov。
         float d[3];
         vec3_sub(d, eye, center);
         float D = vec3_length(d);
         if (D < 1e-6f) D = 1.0f;   // 防御：避免除以零
-        float fov = 2.f * atanf(viewSize / D);
+        float fov = 2.f * atanf(view_size / D);
         mat4_set_perspective(projection, fov, aspect, near_, far_);
         // mat4_set_perspective 第二参是弧度，见 math_utils.c
     } else {
-        // 正交：直接用 viewSize 作为半高
-        float left   = -viewSize * aspect;
-        float right  =  viewSize * aspect;
-        float bottom = -viewSize;
-        float top    =  viewSize;
+        // 正交：直接用 view_size 作为半高
+        float left   = -view_size * aspect;
+        float right  =  view_size * aspect;
+        float bottom = -view_size;
+        float top    =  view_size;
         mat4_set_orthographic(projection, left, right, bottom, top, near_, far_);
     }
 
@@ -494,7 +505,7 @@ void display() {
     mat4_mul(projection_view, projection, view);
     // 上传4×4矩阵，以指针形式。上传一个指针，倒数第二个参数这里用GL_FALSE和GL_TRUE表示是否转置。
     // projection 和 view 这里总是一起做，可以算好两者乘积一次性传给 GPU。
-    glUniformMatrix4fv(glGetUniformLocation(shaderProgram, "projection_view"), 1, GL_FALSE, projection_view);
+    glUniformMatrix4fv(projection_view_location, 1, GL_FALSE, projection_view);
 
     // 棍子长度、半径、球长度在前面定义的全局变量
 
@@ -541,7 +552,7 @@ void display() {
     // ========== 绘制化学键 ==========
     // 绑定圆柱的 VAO
     // 这里绑定是为了使用配置。
-    glBindVertexArray(cylinderVAO);
+    glBindVertexArray(cylinder_VAO);
 
     float bond_vector[3];
     float bond_length;
@@ -608,19 +619,19 @@ void display() {
             mat4_topleft_to_mat3(model3_inverse_transpose, model);
             mat3_append_inverse_scale(model3_inverse_transpose, scale);
             mat3_lmul_inplace(model3_inverse_transpose, rot3); // 把分子整体旋转算进法线，光跟视角走
-            glUniformMatrix3fv(glGetUniformLocation(shaderProgram, "model3_inverse_transpose"), 1, GL_FALSE, model3_inverse_transpose);
+            glUniformMatrix3fv(model3_inverse_transpose_location, 1, GL_FALSE, model3_inverse_transpose);
             // 缩放到正常尺寸，最后再用
             mat4_append_scale(model, scale);
-            glUniformMatrix4fv(glGetUniformLocation(shaderProgram, "model"), 1, GL_FALSE, model);
+            glUniformMatrix4fv(model_location, 1, GL_FALSE, model);
             // 颜色
-            glUniform3fv(glGetUniformLocation(shaderProgram, "objectColor"), 1, element_color(mol->atomic_indices[iatom]));
+            glUniform3fv(object_color_location, 1, element_color(mol->atomic_indices[iatom]));
             // GL_TRIANGLES：每 3 个索引 = 1 个三角形。
             // 第二个参数是索引的个数，即三角形个数的3倍。
             // 第三个参数是索引的数据类型（EBO 里存的是 unsigned int）。
             // 最后一个参数是从EBO的哪个偏移开始读。
             // 这里才是真实绘制，或者说实例化，用当前绑定的着色器（含所有Uniform，比如上传的model矩阵和物体颜色等信息）和当前绑定的VAO绘制一个物体。
-            // 我们这里是用glUseProgram(shaderProgram)来对所有物体用了相同着色器。如果真的要不同物体用不同着色器，这里应该激活新的着色器。
-            glDrawElements(GL_TRIANGLES, cylinderIdxCount, GL_UNSIGNED_INT, 0);
+            // 我们这里是用glUseProgram(shader_program)来对所有物体用了相同着色器。如果真的要不同物体用不同着色器，这里应该激活新的着色器。
+            glDrawElements(GL_TRIANGLES, cylinder_idx_count, GL_UNSIGNED_INT, 0);
 
             // 再画 j 那一半
             scale[1] = bond_length_j;
@@ -662,19 +673,19 @@ void display() {
             mat4_topleft_to_mat3(model3_inverse_transpose, model);
             mat3_append_inverse_scale(model3_inverse_transpose, scale);
             mat3_lmul_inplace(model3_inverse_transpose, rot3); // 把分子整体旋转算进法线，光跟视角走
-            glUniformMatrix3fv(glGetUniformLocation(shaderProgram, "model3_inverse_transpose"), 1, GL_FALSE, model3_inverse_transpose);
+            glUniformMatrix3fv(model3_inverse_transpose_location, 1, GL_FALSE, model3_inverse_transpose);
             // 缩放到正常尺寸，最后再用
             mat4_append_scale(model, scale);
-            glUniformMatrix4fv(glGetUniformLocation(shaderProgram, "model"), 1, GL_FALSE, model);
+            glUniformMatrix4fv(model_location, 1, GL_FALSE, model);
             // 颜色
-            glUniform3fv(glGetUniformLocation(shaderProgram, "objectColor"), 1, element_color(mol->atomic_indices[jatom]));
+            glUniform3fv(object_color_location, 1, element_color(mol->atomic_indices[jatom]));
             // GL_TRIANGLES：每 3 个索引 = 1 个三角形。
             // 第二个参数是索引的个数，即三角形个数的3倍。
             // 第三个参数是索引的数据类型（EBO 里存的是 unsigned int）。
             // 最后一个参数是从EBO的哪个偏移开始读。
             // 这里才是真实绘制，或者说实例化，用当前绑定的着色器（含所有Uniform，比如上传的model矩阵和物体颜色等信息）和当前绑定的VAO绘制一个物体。
-            // 我们这里是用glUseProgram(shaderProgram)来对所有物体用了相同着色器。如果真的要不同物体用不同着色器，这里应该激活新的着色器。
-            glDrawElements(GL_TRIANGLES, cylinderIdxCount, GL_UNSIGNED_INT, 0);
+            // 我们这里是用glUseProgram(shader_program)来对所有物体用了相同着色器。如果真的要不同物体用不同着色器，这里应该激活新的着色器。
+            glDrawElements(GL_TRIANGLES, cylinder_idx_count, GL_UNSIGNED_INT, 0);
         }
     } else {
         for (unsigned int ibond = 0u; ibond < mol->nbonds; ++ ibond) {
@@ -722,19 +733,19 @@ void display() {
             mat4_topleft_to_mat3(model3_inverse_transpose, model);
             mat3_append_inverse_scale(model3_inverse_transpose, scale);
             mat3_lmul_inplace(model3_inverse_transpose, rot3); // 把分子整体旋转算进法线，光跟视角走
-            glUniformMatrix3fv(glGetUniformLocation(shaderProgram, "model3_inverse_transpose"), 1, GL_FALSE, model3_inverse_transpose);
+            glUniformMatrix3fv(model3_inverse_transpose_location, 1, GL_FALSE, model3_inverse_transpose);
             // 缩放到正常尺寸，最后再用
             mat4_append_scale(model, scale);
-            glUniformMatrix4fv(glGetUniformLocation(shaderProgram, "model"), 1, GL_FALSE, model);
+            glUniformMatrix4fv(model_location, 1, GL_FALSE, model);
             // 颜色，这里固定灰色
-            glUniform3f(glGetUniformLocation(shaderProgram, "objectColor"), 0.6f, 0.6f, 0.6f);
+            glUniform3f(object_color_location, 0.6f, 0.6f, 0.6f);
             // GL_TRIANGLES：每 3 个索引 = 1 个三角形。
             // 第二个参数是索引的个数，即三角形个数的3倍。
             // 第三个参数是索引的数据类型（EBO 里存的是 unsigned int）。
             // 最后一个参数是从EBO的哪个偏移开始读。
             // 这里才是真实绘制，或者说实例化，用当前绑定的着色器（含所有Uniform，比如上传的model矩阵和物体颜色等信息）和当前绑定的VAO绘制一个物体。
-            // 我们这里是用glUseProgram(shaderProgram)来对所有物体用了相同着色器。如果真的要不同物体用不同着色器，这里应该激活新的着色器。
-            glDrawElements(GL_TRIANGLES, cylinderIdxCount, GL_UNSIGNED_INT, 0);
+            // 我们这里是用glUseProgram(shader_program)来对所有物体用了相同着色器。如果真的要不同物体用不同着色器，这里应该激活新的着色器。
+            glDrawElements(GL_TRIANGLES, cylinder_idx_count, GL_UNSIGNED_INT, 0);
         }
     }
 
@@ -745,7 +756,7 @@ void display() {
     // 尽管理想球体，球心在原点时候旋转不变，但是实际法线得跟着旋转，否则光线方向不对，因此还是要乘R矩阵的。
     // 唯一不受法线方向影响的是环境光。其他比如点光源、方向光、漫反射光等都受法线方向影响。
     // 绑定球的 VAO
-    glBindVertexArray(sphereVAO);
+    glBindVertexArray(sphere_VAO);
 
     // 绘制每个原子
     for (unsigned int iatom = 0u; iatom < mol->natoms; ++ iatom) {
@@ -755,13 +766,13 @@ void display() {
         scale[0] = scale[1] = scale[2] = mol->atomic_covalence_radius[iatom] * ATOMIC_RADIUS_DISPLAY_SCALE;
         mat3_append_inverse_scale(model3_inverse_transpose, scale);
         mat3_lmul_inplace(model3_inverse_transpose, rot3); // 把分子整体旋转算进法线，光跟视角走
-        glUniformMatrix3fv(glGetUniformLocation(shaderProgram, "model3_inverse_transpose"), 1, GL_FALSE, model3_inverse_transpose);
+        glUniformMatrix3fv(model3_inverse_transpose_location, 1, GL_FALSE, model3_inverse_transpose);
         mat4_append_scale(model, scale);
-        glUniformMatrix4fv(glGetUniformLocation(shaderProgram, "model"), 1, GL_FALSE, model);
-        glUniform3fv(glGetUniformLocation(shaderProgram, "objectColor"), 1, element_color(mol->atomic_indices[iatom]));
+        glUniformMatrix4fv(model_location, 1, GL_FALSE, model);
+        glUniform3fv(object_color_location, 1, element_color(mol->atomic_indices[iatom]));
         // 实体化
         // 最后一个参数是 EBO 里的偏移
-        glDrawElements(GL_TRIANGLES, sphereIdxCount, GL_UNSIGNED_INT, 0);
+        glDrawElements(GL_TRIANGLES, sphere_idx_count, GL_UNSIGNED_INT, 0);
     }
 
     // 解绑球的 VAO
@@ -772,7 +783,7 @@ void display() {
     // glUseProgram(0); // 解除激活着色器，通常没必要而且不这么做，核心模式没有着色器无法绘图。
 }
 
-int initWindow(int argc, char **argv) {
+int init_window(int argc, char **argv) {
     // 先读入分子
     if (argc - 1 != 1) {
         fprintf(stdout, "Usage: \"%s\" xxx.gjf|xyz|out|fch\n", argv[0]);
@@ -814,7 +825,7 @@ int initWindow(int argc, char **argv) {
     // GLUT_RGB 是用RGB/RGBA 色彩模式，唯一合理的选择。如果要支持透明度通道，用RGBA
     // 相比于老旧早已淘汰的索引颜色模式（调色板模式，每个像素存一个调色板索引）
     glutInitContextProfile(GLUT_CORE_PROFILE);   // 核心模式，只保留可编程管线，放弃对旧的固定管线兼容
-    glutInitWindowSize(winWidth, winHeight);
+    glutInitWindowSize(win_width, win_height);
 
     glutCreateWindow(ifilename);
 
@@ -854,50 +865,60 @@ int initWindow(int argc, char **argv) {
 }
 
 // 初始化场景（创建几何体、着色器）
-void initScene() {
+void init_scene() {
     #ifdef USE_HIGH_RESOLUTION
     const int sectors = 32; // 经纬球和圆柱的经向块数
     const int stacks = 32; // 只有经纬球用的到，纬向块数
-    const int numSubdivide = 3; // 正二十面体细分球（棱角球）表面细分次数。 
+    const int num_subdivide = 3; // 正二十面体细分球（棱角球）表面细分次数。 
     #else
     const int sectors = 16;
     const int stacks = 16;
-    const int numSubdivide = 2;
+    const int num_subdivide = 2;
     #endif
     (void)stacks; // 这个变量其实用不到，我们已经不用经纬球了，但是还是留在这里，这行避免编译器 Warning
 
-    // numSubdivide = 2 的时候三角形比上面经纬球的 sectors = 16; stacks = 16; 略少，但是更均匀，效果应该差不多。
-    // 如果 sectors 和 stacks 都设高质量的 32，可以 numSubdivide 增加到 3。总之只考虑三角形个数，sectors 和 stacks 翻倍，
-    // 三角形近似变成四倍；numSubdivide 增加 1，三角形个数也变成四倍。
+    // num_subdivide = 2 的时候三角形比上面经纬球的 sectors = 16; stacks = 16; 略少，但是更均匀，效果应该差不多。
+    // 如果 sectors 和 stacks 都设高质量的 32，可以 num_subdivide 增加到 3。总之只考虑三角形个数，sectors 和 stacks 翻倍，
+    // 三角形近似变成四倍；num_subdivide 增加 1，三角形个数也变成四倍。
 
-    float *sphereVerts, *cylinderVerts;
-    int sphereVertCount, cylinderVertCount;
-    GLuint *sphereIdx, *cylinderIdx;
+    float *sphere_verts, *cylinder_verts;
+    int sphere_vert_count, cylinder_vert_count;
+    GLuint *sphere_idx, *cylinder_idx;
 
     // 最初版本的，经纬球
-    // generateGeoSphere(sectors, stacks,
-    //                &sphereVerts, &sphereVertCount,
-    //                &sphereIdx, &sphereIdxCount);
+    // generate_geosphere(sectors, stacks,
+    //                &sphere_verts, &sphere_vert_count,
+    //                &sphere_idx, &sphere_idx_count);
     // 现在版本的，只用棱角球，一定做中点去重，看有没有 Hash 库决定是用散列函数还是排序+二分查找
-    generateIcoSphere(numSubdivide, 
-                   &sphereVerts, &sphereVertCount,
-                   &sphereIdx, &sphereIdxCount);
-    generateCylinder(sectors,
-                     &cylinderVerts, &cylinderVertCount,
-                     &cylinderIdx, &cylinderIdxCount);
+    generate_icosphere(num_subdivide, 
+                   &sphere_verts, &sphere_vert_count,
+                   &sphere_idx, &sphere_idx_count);
+    generate_cylinder(sectors,
+                     &cylinder_verts, &cylinder_vert_count,
+                     &cylinder_idx, &cylinder_idx_count);
 
     // 赋值给.h声明的两个全局变量。
-    sphereVAO = createVAO(sphereVerts, sphereVertCount, sphereIdx, sphereIdxCount);
-    cylinderVAO = createVAO(cylinderVerts, cylinderVertCount, cylinderIdx, cylinderIdxCount);
+    sphere_VAO = create_VAO(sphere_verts, sphere_vert_count, sphere_idx, sphere_idx_count);
+    cylinder_VAO = create_VAO(cylinder_verts, cylinder_vert_count, cylinder_idx, cylinder_idx_count);
 
     // 数据已经上传到GPU，可以释放内存了
-    free(sphereVerts); free(sphereIdx);
-    sphereVerts = NULL; sphereIdx = NULL;
-    free(cylinderVerts); free(cylinderIdx);
-    cylinderVerts = NULL; cylinderIdx = NULL;
+    my_free(sphere_verts); my_free(sphere_idx);
+    sphere_verts = NULL; sphere_idx = NULL;
+    my_free(cylinder_verts); my_free(cylinder_idx);
+    cylinder_verts = NULL; cylinder_idx = NULL;
 
     // 编译并链接得到GPU的着色器程序
-    shaderProgram = createShaderProgram(vertexShaderSource, fragmentShaderSource);
+    shader_program = create_shader_program(vertex_shader_source, fragment_shader_source);
+
+    // 着色器变量位置编号
+    light_color_location = glGetUniformLocation(shader_program, "light_color");
+    light_dir_location = glGetUniformLocation(shader_program, "light_dir");
+    light_dir_comp_location = glGetUniformLocation(shader_program, "light_dir_comp");
+    ambient_color_location = glGetUniformLocation(shader_program, "ambient_color");
+    projection_view_location = glGetUniformLocation(shader_program, "projection_view");
+    model3_inverse_transpose_location = glGetUniformLocation(shader_program, "model3_inverse_transpose");
+    model_location = glGetUniformLocation(shader_program, "model");
+    object_color_location = glGetUniformLocation(shader_program, "object_color");
 
     // 开启深度测试，正确处理遮挡关系
     glEnable(GL_DEPTH_TEST);
@@ -914,13 +935,13 @@ void initScene() {
     mol_radius = compute_mol_radius();
 
     // 取景：让分子约占视野 80%（同时考虑竖直和水平方向）
-    float aspect = (float)winWidth / (float)winHeight;
+    float aspect = (float)win_width / (float)win_height;
     float fit = fminf(1.0f, aspect);
-    viewSize = mol_radius / (fit * 0.8f);
+    view_size = mol_radius / (fit * 0.8f);
 
     // 眼距：由 45° 垂直视场角反推（D 只是"透视强度"旋钮，不影响中心平面大小）
     float fov0 = 45.0f * (float)M_PI / 180.0f;
-    float D0 = viewSize / tanf(fov0 * 0.5f);
+    float D0 = view_size / tanf(fov0 * 0.5f);
 
     // 相机对准分子质心，沿 +Z 后退 D0（坐标本身不动，只改视角）
     vec3_copy(center, mol_center);
@@ -940,8 +961,8 @@ void reshape(int w, int h) {
     if (w < 1) w = 1;
     if (h < 1) h = 1;
 
-    winWidth = w;
-    winHeight = h;
+    win_width  = w;
+    win_height = h;
     glViewport(0, 0, w, h); // 左下角x y坐标、宽度和高度
 }
 
@@ -950,6 +971,7 @@ void keyboard(unsigned char key, int x, int y) {
     (void)x;
     (void)y;
     float clip_step = 0.1f * mol_radius;   // 每次调整 0.1 个分子半径
+    float max_clip_far_offset; // 避免把远裁平面推的太远
     switch (key) {
     case 0x1B: exit(EXIT_SUCCESS); break;  // ESC
     case 'v': // v 切换正交/透视
@@ -970,7 +992,7 @@ void keyboard(unsigned char key, int x, int y) {
         break;
     case '}': // 远裁剪面偏移推远
         clip_far_offset += clip_step;
-        float max_clip_far_offset = clip_near_offset + 10.0f * mol_radius;
+        max_clip_far_offset = clip_near_offset + 10.0f * mol_radius;
         if (clip_far_offset > max_clip_far_offset) clip_far_offset = max_clip_far_offset;
         glutPostRedisplay();
         break;
@@ -980,7 +1002,7 @@ void keyboard(unsigned char key, int x, int y) {
 }
 
 // 注册回调
-void registerCallbacks() {
+void register_callbacks() {
     glutDisplayFunc(display);
     glutReshapeFunc(reshape);
     glutKeyboardFunc(keyboard);

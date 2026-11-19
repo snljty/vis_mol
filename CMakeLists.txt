@@ -17,8 +17,6 @@ if(WIN32)
     enable_language(RC)
 # Linux 桌面图标+启动器
 elseif(UNIX AND NOT APPLE)
-    include(GNUInstallDirs)
-
     # 将程序图标安装到高彩色图标主题中，从而同名程序会直接使用。
     # 用 .in 拓展名习惯上告诉别人这个是模板，不能直接用
     configure_file(
@@ -50,41 +48,25 @@ else()
     message(FATAL_ERROR "OpenGL not found.")
 endif()
 
-# set(FreeGLUT_LIBS FreeGLUT::freeglut)
-# 默认静态链接，只需发布可执行文件即可。如果用上面的就是动态链接，要带上FreeGLUT的动态链接库才能运行。
-set(FreeGLUT_LIBS FreeGLUT::freeglut_static)
-
 # ========== 查找 FreeGLUT ==========
 find_package(FreeGLUT CONFIG REQUIRED)
-if(FreeGLUT_FOUND)
-    message(STATUS "FreeGLUT found: ${FreeGLUT_LIBS}")
+option(USE_STATIC_FREEGLUT "Use static FreeGLUT library instead of shared" ON)
+if(USE_STATIC_FREEGLUT)
+    set(FreeGLUT_LIBS FreeGLUT::freeglut_static)
+    message(STATUS "USE_STATIC_FREEGLUT: ON")
 else()
-    message(FATAL_ERROR
-        "FreeGLUT not found. Set CMAKE_PREFIX_PATH to the FreeGLUT installation directory.\n"
-)
+    set(FreeGLUT_LIBS FreeGLUT::freeglut)
+    message(STATUS "USE_STATIC_FREEGLUT: OFF")
 endif()
 
 # ========== 查找 GLAD ==========
 find_package(GLAD CONFIG REQUIRED)
-if(GLAD_FOUND)
-    message(STATUS "GLAD found: GLAD")
-else()
-    message(FATAL_ERROR "GLAD not found. Set CMAKE_PREFIX_PATH to GLAD install dir.")
-endif()
+message(STATUS "GLAD found: GLAD")
 
 # ========== 平台相关链接库 ==========
 if(WIN32)
-    set(PLATFORM_LIBS
-        opengl32
-        glu32
-        winmm)
-elseif(UNIX)
-    find_library(GL_LIB GL)
-    find_library(GLU_LIB GLU)
-    set(PLATFORM_LIBS
-        ${GL_LIB}
-        ${GLU_LIB}
-    )
+    # FreeGLUT 的 glutGet(GLUT_ELAPSED_TIME) 在 Windows 上是 timeGetTime()，来自 winmm
+    set(PLATFORM_LIBS winmm)
 endif()
 
 # ========== 着色器头文件生成 ==========
@@ -111,18 +93,21 @@ add_custom_command(
 
 # ========== 主程序 ==========
 file(GLOB MAIN_SOURCES ${CMAKE_SOURCE_DIR}/src/*.c)
-add_executable(${PROJECT_NAME} WIN32 ${MAIN_SOURCES})
+if(WIN32)
+    set(APP_WIN32 WIN32)
+endif()
+add_executable(${PROJECT_NAME} ${APP_WIN32} ${MAIN_SOURCES})
 
-# ========== 查找 uthash（可选依赖） ==========
+# ========== 查找 UTHash（可选依赖） ==========
 find_path(UTHASH_INCLUDE_DIR uthash.h PATH_SUFFIXES src)
 if(UTHASH_INCLUDE_DIR)
-    message(STATUS "uthash found: ${UTHASH_INCLUDE_DIR}")
-    # 告诉源代码：有 uthash，编译基于hash的细分球
+    message(STATUS "UTHash found: ${UTHASH_INCLUDE_DIR}")
+    # 告诉源代码：有 UTHash，编译基于hash的细分球
     target_compile_definitions(${PROJECT_NAME} PRIVATE HAVE_UTHASH=1)
     # 添加 include 路径
     target_include_directories(${PROJECT_NAME} PRIVATE ${UTHASH_INCLUDE_DIR})
 else()
-    message(STATUS "uthash NOT found - icosphere subdivision and element index search will use slower version.")
+    message(STATUS "UTHash NOT found - icosphere subdivision and element index search will use slower version.")
 endif()
 
 # ========== Windows 可执行文件图标 ==========
@@ -135,7 +120,7 @@ if(WIN32)
 endif()
 
 # ========== 高分辨率选项（可选） ==========
-option(USE_HIGH_RESOLUTION "Use higher resolution sphere" OFF)
+option(USE_HIGH_RESOLUTION "Use higher resolution sphere" ON)
 if(USE_HIGH_RESOLUTION)
     target_compile_definitions(${PROJECT_NAME} PRIVATE USE_HIGH_RESOLUTION=1)
     message(STATUS "USE_HIGH_RESOLUTION: ON")
@@ -153,10 +138,11 @@ target_include_directories(${PROJECT_NAME} PRIVATE
 
 # 链接库
 target_link_libraries(${PROJECT_NAME} PRIVATE 
-    ${PLATFORM_LIBS}
+    OpenGL::GL
     ${FreeGLUT_LIBS}
     GLAD
-    ${CMAKE_DL_LIBS} # 为 Linux 下静态库。 Windows 下此变量为空
+    ${PLATFORM_LIBS}
+    ${CMAKE_DL_LIBS} # 为了 Linux 下静态库 GLAD。 Windows 下此变量为空
 )
 
 # libdl 是 Linux/Unix 上提供动态加载（dynamic loading）接口的库。核心就四个函数：
@@ -167,7 +153,7 @@ target_link_libraries(${PROJECT_NAME} PRIVATE
 # dlerror() —— 取错误信息。
 
 # Linux 下 GLAD 的工作方式：它替在运行时把 OpenGL 的所有函数入口查出来，赋给一组全局函数指针（glad_glXxx）
-# 所以需要上面的 ${CMAKE_FL_LIBS} 提供 -ldl，而且静态链接时候必须在 GLAD 之后，提供接口。
+# 所以需要上面的 ${CMAKE_DL_LIBS} 提供 -ldl，而且静态链接时候必须在 GLAD 之后，提供接口。
 
-# 安装规则：只安装 lollipop，不安装 embed_shaders
+# 安装规则：只安装主程序 vis_mol，不安装 embed_shaders
 install(TARGETS ${PROJECT_NAME} RUNTIME DESTINATION ${CMAKE_INSTALL_BINDIR})

@@ -4,7 +4,7 @@
 
 #include <glad/glad.h>
 
-GLuint compileShader(GLenum type, const char *source);
-GLuint createShaderProgram(const char *vertexSource, const char *fragmentSource);
+GLuint compile_shader(GLenum type, const char *source);
+GLuint create_shader_program(const char *vertex_source, const char *fragment_source);
 
 #endif
