@@ -152,6 +152,9 @@ static const float ROLL_SPEED  =  0.01f;   // 每像素弧度（绕视线方向�
 static const float ZOOM_FACTOR =  0.9f;    // 每次滚轮 viewSize 乘的系数
 static const float PAN_SPEED   =  2.0f;    // 每像素世界单位（平移）
 
+// 显示的原子球半径是原子共价半径多少倍
+static const float ATOMIC_RADIUS_DISPLAY_SCALE = 0.5f;
+
 // 创建 VAO（包含 VBO 和 EBO）
 GLuint createVAO(float *vertices, int vertexCount,
                        GLuint *indices, int indexCount) {
@@ -216,19 +219,19 @@ static void compute_mol_center() {
     vec3_scale_inverse(mol_center, tot_mass);
 }
 
-// 计算分子的包围球半径（到质心的最大距离；只算一次）
+// 计算分子的包围球半径（到质心的最大距离，要考虑到原子球也有半径；只算一次）
 static float compute_mol_radius() {
     if (mol->natoms == 1) return 1.0f;
-    float max_r2 = 0.f;
+    float max_r = 0.f;
     float delta[3];
+    float r;
     for (unsigned int i = 0u; i < mol->natoms; ++ i) {
         vec3_sub(delta, atom_coord(mol, i), mol_center);
-        float r2 = vec3_squared_length(delta);
-        if (r2 > max_r2) max_r2 = r2;
+        r = vec3_length(delta) + mol->atomic_covalence_radius[i] * ATOMIC_RADIUS_DISPLAY_SCALE;
+        if (r > max_r) max_r = r;
     }
-    float R = sqrtf(max_r2);
-    if (R < 1E-6f) R = 1.0f; // 退化时的兜底
-    return R;
+    if (r < 1E-6f) r = 1.0f; // 退化时的兜底
+    return r;
 }
 
 // 之前有static void orbit_camera(const float *axis, float angle);和static void roll_camera(float angle);函数，
@@ -749,7 +752,7 @@ void display() {
         mat4_set_translation(model, atom_coord(mol, iatom)[0], atom_coord(mol, iatom)[1], atom_coord(mol, iatom)[2]);
         // 这里model还不包括S
         mat3_identity(model3_inverse_transpose);
-        scale[0] = scale[1] = scale[2] = mol->atomic_covalence_radius[iatom] / 2.f;
+        scale[0] = scale[1] = scale[2] = mol->atomic_covalence_radius[iatom] * ATOMIC_RADIUS_DISPLAY_SCALE;
         mat3_append_inverse_scale(model3_inverse_transpose, scale);
         mat3_lmul_inplace(model3_inverse_transpose, rot3); // 把分子整体旋转算进法线，光跟视角走
         glUniformMatrix3fv(glGetUniformLocation(shaderProgram, "model3_inverse_transpose"), 1, GL_FALSE, model3_inverse_transpose);
