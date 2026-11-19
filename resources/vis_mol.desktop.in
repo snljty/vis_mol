@@ -1,0 +1,9 @@
+[Desktop Entry]
+Type=Application
+Name=vis_mol
+Comment=Molecular 3D viewer
+Exec="@CMAKE_INSTALL_FULL_BINDIR@/vis_mol" %f
+Icon=vis_mol
+Terminal=false
+Categories=Science;Chemistry;Education;Graphics;
+MimeType=chemical/x-gjf;chemical/x-xyz;chemical/x-out;chemical/x-fch;
