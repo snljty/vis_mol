@@ -1,4 +1,4 @@
-cmake_minimum_required(VERSION 3.10)
+cmake_minimum_required(VERSION 3.16)
 project(vis_mol LANGUAGES C)
 
 # Windows 下启用资源（可执行文件图标）嵌入 (MinGW: windres)
@@ -79,6 +79,18 @@ add_custom_command(
 file(GLOB MAIN_SOURCES ${CMAKE_SOURCE_DIR}/src/*.c)
 add_executable(${PROJECT_NAME} WIN32 ${MAIN_SOURCES})
 
+# ========== 查找 uthash（可选依赖） ==========
+find_path(UTHASH_INCLUDE_DIR uthash.h PATH_SUFFIXES src)
+if(UTHASH_INCLUDE_DIR)
+    message(STATUS "uthash found: ${UTHASH_INCLUDE_DIR}")
+    # 告诉源代码：有 uthash，编译基于hash的细分球
+    target_compile_definitions(${PROJECT_NAME} PRIVATE HAVE_UTHASH=1)
+    # 添加 include 路径
+    target_include_directories(${PROJECT_NAME} PRIVATE ${UTHASH_INCLUDE_DIR})
+else()
+    message(STATUS "uthash NOT found - icosphere subdivision and element index search will use slower version.")
+endif()
+
 # ========== Windows 可执行文件图标 ==========
 if(WIN32)
     set(APP_ICON_RC ${CMAKE_CURRENT_SOURCE_DIR}/resources/logo.rc)
@@ -95,18 +107,6 @@ if(USE_HIGH_RESOLUTION)
     message(STATUS "USE_HIGH_RESOLUTION: ON")
 else()
     message(STATUS "USE_HIGH_RESOLUTION: OFF")
-endif()
-
-# ========== 查找 uthash（可选依赖） ==========
-find_path(UTHASH_INCLUDE_DIR uthash.h PATH_SUFFIXES src)
-if(UTHASH_INCLUDE_DIR)
-    message(STATUS "uthash found: ${UTHASH_INCLUDE_DIR}")
-    # 告诉源代码：有 uthash，编译基于hash的细分球
-    target_compile_definitions(${PROJECT_NAME} PRIVATE HAVE_UTHASH=1)
-    # 添加 include 路径
-    target_include_directories(${PROJECT_NAME} PRIVATE ${UTHASH_INCLUDE_DIR})
-else()
-    message(STATUS "uthash NOT found - icosphere subdivision and element index search will use slower version.")
 endif()
 
 # 关键：让包含着色器头文件的源文件依赖这些生成的头文件

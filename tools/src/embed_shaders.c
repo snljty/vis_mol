@@ -101,11 +101,11 @@ void shader_src_to_header(const char *filename) {
     strcat(varname, "ShaderSource");
     sprintf(ofilename, "..%cinclude%c%s.h", splitter, splitter, ifilename);
 
-    FILE *ifile = fopen(ifilename, "r");
+    FILE *ifile = fopen(ifilename, "rb");
     if (!ifile) {
         fprintf(stderr, "Error! Cannot open \"%s\" for reading.\n", ifilename);
     }
-    FILE *ofile = fopen(ofilename, "w");
+    FILE *ofile = fopen(ofilename, "wb");
     if (!ofile) {
         fprintf(stderr, "Error! Cannot open \"%s\" for writing.\n", ofilename);
     }
@@ -113,7 +113,10 @@ void shader_src_to_header(const char *filename) {
     fprintf(ofile, "const char %s[] = \\", varname);
     while (fgets(line, BUFSIZ, ifile)) {
         size_t line_len = strlen(line);
-        if (line_len > 0 && line[line_len - 1] == '\n') line[line_len - 1] = '\0';
+        /* Strip any trailing line terminators: handles "\r\n", "\n", and "\r" */
+        while (line_len > 0 && (line[line_len - 1] == '\n' || line[line_len - 1] == '\r')) {
+            line[-- line_len] = '\0';
+        }
 
         char clean_line[BUFSIZ + 1] = "";
         strip_glsl_comments(clean_line, line, &in_block_comment);
