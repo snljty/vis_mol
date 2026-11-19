@@ -50,7 +50,8 @@ elseif(UNIX)
     find_library(GLU_LIB GLU)
     set(PLATFORM_LIBS
         ${GL_LIB}
-        ${GLU_LIB})
+        ${GLU_LIB}
+    )
 endif()
 
 # ========== 着色器头文件生成 ==========
@@ -118,7 +119,12 @@ target_include_directories(${PROJECT_NAME} PRIVATE
 )
 
 # 链接库
-target_link_libraries(${PROJECT_NAME} PRIVATE ${PLATFORM_LIBS} ${FreeGLUT_LIBS} GLAD)
+target_link_libraries(${PROJECT_NAME} PRIVATE 
+    ${PLATFORM_LIBS}
+    ${FreeGLUT_LIBS}
+    GLAD
+    ${CMAKE_DL_LIBS} # 为 Linux 下静态库。 Windows 下此变量为空
+)
 
 # 安装规则：只安装 lollipop，不安装 embed_shaders
 install(TARGETS ${PROJECT_NAME} RUNTIME DESTINATION bin)
