@@ -2,7 +2,7 @@
 C 语言的简易分子可视化程序。
 除了几行着色器代码的 GLSL，整个程序由纯 C 语言构成。
 
-支持 Gaussian 的.gjf、.out、.fch 格式和标准的 .xyz 格式。
+支持 Gaussian 的.gjf、.out、.fch 格式和标准的 .xyz、.wfn 格式。
 
 编译使用了 FreeGLUT 作为 GLUT 库用来处理窗口、事件响应、OpenGL 上下文、双缓冲交换、事件循环等，默认动态链接，所以运行需要 GNU 编译器编译的 libfreeglut.dll。
 FreeGLUT 库可以从 [FreeGLUT](https://freeglut.sourceforge.net/ "FreeGLUT") 下载并自行编译。

@@ -123,6 +123,8 @@ Molecule *read_molecule(const char *ifilename) {
         return read_out(ifilename);
     } else if (!strcmp(pos, ".fch") || !strcmp(pos, ".fchk")) {
         return read_fch(ifilename);
+    } else if (!strcmp(pos, ".wfn")) {
+        return read_wfn(ifilename);
     } else {
         fprintf(stderr, "Error! The filename suffix cannot be understood.\n");
         exit(EXIT_FAILURE);
@@ -674,6 +676,94 @@ Molecule *read_fch(const char *ifilename) {
         for (unsigned int i = 0u; i < 9u; ++ i) {
             mol->box[i] *= Angstrom_per_Bohr;
         }
+    }
+
+    fclose(ifile);
+    ifile = NULL;
+
+    return mol;
+}
+
+Molecule *read_wfn(const char *ifilename) {
+    // check file availablility
+    if (!ifilename) {
+        fprintf(stderr, "Error! The filename suffix should be \".wfn\".\n");
+        exit(EXIT_FAILURE);
+    }
+    const char *pos = strrchr(ifilename, '.');
+    if (!pos || strcmp(pos, ".wfn")) {
+        fprintf(stderr, "Error! The filename suffix should be \".wfn\".\n");
+        exit(EXIT_FAILURE);
+    }
+    FILE *ifile = fopen(ifilename, "r");
+    if (!ifile) {
+        fprintf(stderr, "Error! Cannot open \"%s\" for reading.\n", ifilename);
+        exit(EXIT_FAILURE);
+    }
+
+    const float Angstrom_per_Bohr = 0.52917721092f;
+
+    Molecule *mol = new_molecule();
+
+    mol->natoms = 0u;
+    nullify_molecule(mol);
+
+    char line[BUFSIZ + 1] = "";
+
+    if (!fgets(mol->title, BUFSIZ, ifile)) {
+        fprintf(stderr, "Error! Cannot read title line.\n");
+        exit(EXIT_FAILURE);
+    }
+
+    if (!fgets(line, BUFSIZ, ifile)) {
+        fprintf(stderr, "Error! Cannot read amount of atoms.\n");
+        exit(EXIT_FAILURE);
+    }
+
+    char *line_pos = strstr(line, "NUCLEI");
+    if (!line_pos) {
+        fprintf(stderr, "Error! Cannot read amount of atoms.\n");
+        exit(EXIT_FAILURE);
+    }
+    *line_pos = '\0';
+    while (true) {
+        if (line_pos == line) {
+            fprintf(stderr, "Error! Cannot read amount of atoms.\n");
+            exit(EXIT_FAILURE);
+        }
+        -- line_pos;
+        if (!isspace((unsigned char)*line_pos)) break;
+        *line_pos = '\0';
+    }
+
+    line_pos = strrchr(line, ' ');
+
+    if (!line_pos || sscanf(line_pos, "%u", &mol->natoms) != 1) {
+        fprintf(stderr, "Error! Cannot read amount of atoms.\n");
+        exit(EXIT_FAILURE);
+    }
+
+    allocate_molecule_memory(mol);
+
+    for (unsigned iatom = 0u; iatom < mol->natoms; ++ iatom) {
+        if (!fgets(line, BUFSIZ, ifile) || sscanf(line, "%2s", mol->elements[iatom]) != 1) {
+            fprintf(stderr, "Error! Cannot read atom %u.\n", iatom + 1);
+            exit(EXIT_FAILURE);
+        }
+        line_pos = strchr(line, ')');
+        if (!line_pos || sscanf(line_pos + 1, "%g%g%g", 
+            atom_coord(mol, iatom), 
+            atom_coord(mol, iatom) + 1, 
+            atom_coord(mol, iatom) + 2) != 3) {
+            fprintf(stderr, "Error! Cannot read atom %u.\n", iatom + 1);
+            exit(EXIT_FAILURE);
+        }
+        set_atomic_properties(mol, iatom);
+    }
+
+    // dscal(mol->natoms * 3, Angstrom_per_Bohr, mol->coordinates, 1);
+    for (unsigned int i = 0u; i < mol->natoms * 3; ++ i) {
+        mol->coordinates[i] *= Angstrom_per_Bohr;
     }
 
     fclose(ifile);

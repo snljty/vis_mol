@@ -75,6 +75,8 @@ Molecule *read_out(const char *ifilename);
 
 Molecule *read_fch(const char *ifilename);
 
+Molecule *read_wfn(const char *ifilename);
+
 Molecule *read_molecule(const char *ifilename);
 
 void destroy_molecule(Molecule *mol);
