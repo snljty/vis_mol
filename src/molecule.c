@@ -125,6 +125,8 @@ Molecule *read_molecule(const char *ifilename) {
         return read_fch(ifilename);
     } else if (!strcmp(pos, ".wfn")) {
         return read_wfn(ifilename);
+    } else if (!strcmp(pos, ".chg")) {
+        return read_chg(ifilename);
     } else {
         fprintf(stderr, "Error! The filename suffix cannot be understood.\n");
         exit(EXIT_FAILURE);
@@ -764,6 +766,54 @@ Molecule *read_wfn(const char *ifilename) {
     // dscal(mol->natoms * 3, Angstrom_per_Bohr, mol->coordinates, 1);
     for (unsigned int i = 0u; i < mol->natoms * 3; ++ i) {
         mol->coordinates[i] *= Angstrom_per_Bohr;
+    }
+
+    fclose(ifile);
+    ifile = NULL;
+
+    return mol;
+}
+
+Molecule *read_chg(const char *ifilename) {
+    // check file availablility
+    if (!ifilename) {
+        fprintf(stderr, "Error! The filename suffix should be \".chg\".\n");
+        exit(EXIT_FAILURE);
+    }
+    const char *pos = strrchr(ifilename, '.');
+    if (!pos || strcmp(pos, ".chg")) {
+        fprintf(stderr, "Error! The filename suffix should be \".chg\".\n");
+        exit(EXIT_FAILURE);
+    }
+    FILE *ifile = fopen(ifilename, "r");
+    if (!ifile) {
+        fprintf(stderr, "Error! Cannot open \"%s\" for reading.\n", ifilename);
+        exit(EXIT_FAILURE);
+    }
+
+    Molecule *mol = new_molecule();
+
+    char line[BUFSIZ + 1] = "";
+    mol->natoms = 0u;
+    nullify_molecule(mol);
+
+    while (fgets(line, BUFSIZ, ifile)) {
+        if (!is_line_blank(line)) ++ mol->natoms;
+    }
+    fseek(ifile, 0, SEEK_SET);
+    allocate_molecule_memory(mol);
+
+    const char *line_pos = NULL;
+    for (unsigned iatom = 0u; iatom < mol->natoms; ++ iatom) {
+        if (!fgets(line, BUFSIZ, ifile) || sscanf(line, "%2s%g%g%g", 
+            mol->elements[iatom], 
+            atom_coord(mol, iatom), 
+            atom_coord(mol, iatom) + 1, 
+            atom_coord(mol, iatom) + 2) != 4) {
+            fprintf(stderr, "Error! Cannot read atom %u.\n", iatom + 1);
+            exit(EXIT_FAILURE);
+        }
+        set_atomic_properties(mol, iatom);
     }
 
     fclose(ifile);
