@@ -820,13 +820,22 @@ int init_window(int argc, char **argv) {
     // 3.2 妥协引入了核心模式，无固定管线，但是兼容模式仍然支持固定管线。
     // 3.3 延续双模式，GLSL 330 成为了教程标准。
     // OpenGL 3.3 是核心模式可编程管线的起点，核心模式完全移除了固定管线。
-    glutInitDisplayMode(GLUT_DOUBLE | GLUT_RGB | GLUT_DEPTH);
+    // 只启用核心模式
+    glutInitContextProfile(GLUT_CORE_PROFILE);   // 核心模式，只保留可编程管线，放弃对旧的固定管线兼容
+
     // GLUT_DOUBLE 是双缓冲，后缓冲一帧绘制完后和前缓冲交换，一帧完整显示
     // GLUT_RGB 是用RGB/RGBA 色彩模式，唯一合理的选择。如果要支持透明度通道，用RGBA
     // 相比于老旧早已淘汰的索引颜色模式（调色板模式，每个像素存一个调色板索引）
-    glutInitContextProfile(GLUT_CORE_PROFILE);   // 核心模式，只保留可编程管线，放弃对旧的固定管线兼容
+    // GLUT_MULTISAMPLE 是做抗锯齿，MSAA（多重采样抗锯齿），创建窗口时请求多重采样缓冲，也是最简单的抗锯齿：
+    // 采样数由驱动决定（常见是 4x）
+    // glutInitDisplayMode(GLUT_DOUBLE | GLUT_RGB | GLUT_DEPTH | GLUT_MULTISAMPLE); // 只能做一次
+    // 改用 display string 请求采样数可能更可靠。
+    glutInitDisplayString("rgba double depth>=24 samples=4");
+
+    // 设置窗口尺寸
     glutInitWindowSize(win_width, win_height);
 
+    // 创建窗口。 glutInitDisplayMode 等必须先于它。
     glutCreateWindow(ifilename);
 
     // 加载 OpenGL 函数（必须在创建窗口之后，需要OpenGL上下文）
@@ -838,14 +847,26 @@ int init_window(int argc, char **argv) {
     // 开启垂直同步 VSync，帧率与显示器刷新率同步，避免帧率高于显示器刷新率造成计算浪费。
     glutSwapInterval(1);
 
-    // 后续如果要做抗锯齿，MSAA（多重采样抗锯齿）最简单，大概是创建窗口时请求多重采样缓冲：
-    // glutInitDisplayMode(GLUT_DOUBLE | GLUT_RGB | GLUT_DEPTH | GLUT_MULTISAMPLE);
-    // 然后启用：
-    // glEnable(GL_MULTISAMPLE);
-    // 可能要先设采样数：
-    // glutSetOption(GLUT_MULTISAMPLE, 4);
+    // 启用 MSAA：
+    glEnable(GL_MULTISAMPLE);
+    // 这里至少对当前 Windows 测试平台不生效，可能是 FreeGLUT 在 Windows 下没能拿到多重采样像素格式。
+    // WSL2 里面反倒可以。后期可能得手动实现 FBO MSAA 来保证跨平台行为统一。换 GLFW 可能也可以解决问题。
+    // FreeGLUT 手动设置采样数：
+    // glutInitDisplayString("rgba double depth>=24 samples>=8");
+    // 请求 8x 不等于一定给 8x（硬件/驱动可能只给 4x 甚至不给）。建窗并 gladLoadGL() 之后立刻查：
+    // GLint samples = 0, sample_buffers = 0;
+    // glGetIntegerv(GL_SAMPLE_BUFFERS, &sample_buffers);
+    // glGetIntegerv(GL_SAMPLES, &samples);
+    // fprintf(stderr, "MSAA: sample_buffers=%d, samples=%d\n", sample_buffers, samples);
+    // GLint max_samples = 0;
+    // glGetIntegerv(GL_MAX_SAMPLES, &max_samples);   // 硬件上限
+    // fprintf(stderr, "GL_MAX_SAMPLES=%d\n", max_samples);
+    // 运行时无法改变采样数，但是可以选择启动/开启 MSAA：
+    // glDisable(GL_MULTISAMPLE);   // 关掉抗锯齿
+
     // 如果要做 FXAA （快速近似抗锯齿），要改着色器，通过那个灰度计算公式判断亮度，判断边缘，进行模糊化处理。
     // 这需要 FBO （Framebuffer Object，帧缓冲对象）离屏渲染和全屏四边形，以及一个专门的 FXAA 着色器。
+
     // 如果要做计算量最大的 SSAA （超采样抗锯齿），要以更高分辨率渲染到 FBO，再把这个高分辨率纹理缩小显示到屏幕（降采样）。
 
     // FBO = 一个"渲染目标容器"，它本身不存数据，只是组织多个附件（attachments）。

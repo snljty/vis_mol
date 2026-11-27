@@ -36,7 +36,6 @@ elseif(UNIX AND NOT APPLE)
     # .desktop 里面 Exec 后面的 %f = 单个文件，%F = 多个文件。
 endif()
 
-
 set(CMAKE_C_STANDARD 11)
 set(CMAKE_C_STANDARD_REQUIRED ON)
 
@@ -57,6 +56,11 @@ if(USE_STATIC_FREEGLUT)
 else()
     set(FreeGLUT_LIBS FreeGLUT::freeglut)
     message(STATUS "USE_STATIC_FREEGLUT: OFF")
+endif()
+if(FreeGLUT_FOUND)
+    message(STATUS "FreeGLUT found: ${FreeGLUT_LIBS}")
+else()
+    message(FATAL_ERROR "FreeGLUT not found.")
 endif()
 
 # ========== 查找 GLAD ==========
